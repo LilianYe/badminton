@@ -21,7 +21,7 @@ def generate_schedule(players, court_count, start_hour, elo_threshold, game_per_
         raise ValueError("The total number of games must be divisible by the number of players per court.")
     
     # Load player ELO ratings
-    player_elos, _ = load_existing_player_data('data')
+    player_elos, _ = load_existing_player_data()
     
     # Generate rotation with gender-balanced courts
     rest_schedule, rounds_lineups = generate_rotation(
@@ -56,21 +56,22 @@ def generate_schedule(players, court_count, start_hour, elo_threshold, game_per_
         print("Courts with ELO imbalance:")
         for round_num, court_idx, team1_elo, team2_elo, elo_diff in elo_imbalanced:
             print(f"  Round {round_num}, Court {court_idx}: Team ELOs {team1_elo:.1f} vs {team2_elo:.1f} (Diff: {elo_diff:.1f})")
-    
+    output_file = f"badminton_schedule_{elo_threshold}_{team_elo_diff}.xlsx"
     # Save the schedule to Excel
-    save_schedule_to_excel(rest_schedule, rounds_lineups, start_hour=start_hour)
+    save_schedule_to_excel(rest_schedule, rounds_lineups, output_file, start_hour=start_hour)
     return rounds_lineups 
 
 
 if __name__ == "__main__":
-    players = [ "敏敏子(F)", "cbt", "曹大", "疏朗(F)","Max", "Yunjie", "张晴川", 
+    players = [ "敏敏子(F)", "cbt", "曹大", "Max", "Yunjie", "张晴川", 
                "🐟🍃", "Jing(F)", "ai(F)", "Damien", "MFive(F)", "乌拉乌拉", 
                "shuya(F)", "Yummy(F)", "廖俊杰", "尼古丁", "Louis", 
-               "Acaprice", "方文", "米兰的小铁匠", "ian", "大米", "gdc", "Jensen", "OwenWei"]
+               "Acaprice", "方文", "米兰的小铁匠", "ian", "大米", "gdc", "Jensen", "OwenWei", "疏朗(F)"]
     # check_existing_schedule("badminton_schedule_20250614.xlsx")
-    for i in range(20):
+    for i in range(100):
         try:
-            rounds = generate_schedule(players, court_count=5, start_hour=17, elo_threshold=70, game_per_player=8, team_elo_diff=250)
+            rounds = generate_schedule(players, court_count=5, start_hour=17, elo_threshold=90, game_per_player=8, team_elo_diff=200)
+            break
         except ValueError as e:
             print(f"Error generating schedule: {e}")
     

@@ -1,0 +1,16 @@
+version: '3'
+
+services:
+  app:
+    build: .
+    ports:
+      - "8501:8501"
+    volumes:
+      - .:/app
+      - ./data:/app/data
+    environment:
+      - STREAMLIT_SERVER_RUN_ON_SAVE=true
+      # Add matplotlib debug
+      - MPLCONFIGDIR=/tmp/matplotlib
+      - PYTHONVERBOSE=1
+    restart: unless-stopped

@@ -156,7 +156,7 @@ def backtrack_rest_schedule_variable(players, rest_schedule, rest_counts, curren
     
     # Must rest due to consecutive active rounds (limit is 5)
     must_rest_consecutive = [p for p in players 
-                           if player_consecutive_active.get(p, 0) >= 5]
+                           if player_consecutive_active.get(p, 0) >= 4]
     
     # Must rest due to remaining rest requirements
     rest_needed = {p: target_rest_count - rest_counts[p] for p in players}

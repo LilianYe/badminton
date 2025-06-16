@@ -3,30 +3,15 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import os
 from elo_system import calculate_elo_ratings
-from glob import glob
 import re
 from datetime import datetime
+import matplotlib as mpl
+import logging
+import plotly.graph_objects as go
+from collections import defaultdict
+from data_io import load_player_data, load_session_stats_files, get_head_to_head_history, DATA_DIR, get_player_match_history, get_player_opponents, save_player_data, save_match_history, save_session_stats
 
-# Create a platform-independent data directory path
-def get_data_dir():
-    """Get the appropriate data directory based on environment"""
-    # For Docker deployment
-    docker_path = "/app/data"
-    # For Windows development
-    windows_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
-    
-    # Check if Docker path exists
-    if os.path.exists(docker_path):
-        return docker_path
-    # Fall back to local development path
-    else:
-        # Create the data directory if it doesn't exist
-        if not os.path.exists(windows_path):
-            os.makedirs(windows_path)
-        return windows_path
-
-# Get the data directory to use
-DATA_DIR = get_data_dir()
+HIDDEN_PLAYERS = ['疏朗(F)']
 
 st.set_page_config(
     page_title="Badminton ELO Rating System",
@@ -34,142 +19,100 @@ st.set_page_config(
     initial_sidebar_state="collapsed"  # Prevents sidebar from taking space on mobile
 )
 
-def load_match_history_files():
-    """Load all match history files in the directory"""
-    # Use os.path.join for cross-platform compatibility
-    pattern = os.path.join(DATA_DIR, "match_history_with_elo_*.csv")
-    files = glob(pattern)
-    return sorted(files)
 
-def load_player_data():
-    """Load player ELO ratings and statistics"""
+def configure_matplotlib_fonts():
+    """Configure matplotlib to use fonts that support CJK characters"""
+    # Setup logging
+    logging.basicConfig(level=logging.INFO, 
+                        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    logger = logging.getLogger('badminton-app')
+    
+    logger.info("Configuring fonts for CJK support")
+    
     try:
-        # Use os.path.join for path creation
-        new_ratings_path = os.path.join(DATA_DIR, "player_elo_ratings_new.csv")
-        old_ratings_path = os.path.join(DATA_DIR, "player_elo_ratings.csv")
+        # Get list of system fonts
+        import matplotlib.font_manager as fm
         
-        # Try to read the updated ratings file
-        if os.path.exists(new_ratings_path):
-            df = pd.read_csv(new_ratings_path)
-            file_used = "player_elo_ratings_new.csv"
+        # List of font directories to check
+        font_dirs = []
+        
+        # Add Docker-specific font paths
+        if os.path.exists('/usr/share/fonts/truetype/noto'):
+            font_dirs.append('/usr/share/fonts/truetype/noto')
+        
+        # Find all system fonts + fonts in our specific directories
+        if font_dirs:
+            # Find font files in our specified directories
+            font_files = fm.findSystemFonts(fontpaths=font_dirs)
+            
+            # Register each font file with matplotlib
+            for font_file in font_files:
+                if 'cjk' in font_file.lower() or 'noto' in font_file.lower():
+                    try:
+                        fm.fontManager.addfont(font_file)
+                        logger.info(f"Added font: {os.path.basename(font_file)}")
+                    except Exception as e:
+                        logger.warning(f"Failed to add font {os.path.basename(font_file)}: {e}")
+        
+        # Get available fonts after registration
+        available_fonts = sorted([f.name for f in fm.fontManager.ttflist])
+        logger.info(f"Total fonts available: {len(available_fonts)}")
+        logger.info(f"Sample fonts: {available_fonts[:10]}")
+        
+        # Check for CJK font names in available fonts
+        cjk_patterns = ['cjk', 'noto sans', 'noto serif', 'simhei', 'simsun', 'microsoft yahei']
+        cjk_fonts = [f for f in available_fonts if any(pattern in f.lower() for pattern in cjk_patterns)]
+        
+        logger.info(f"Found {len(cjk_fonts)} potential CJK fonts: {cjk_fonts[:5]}")
+        
+        # Set font configuration
+        mpl.rcParams['font.family'] = 'sans-serif'
+        
+        # Add CJK fonts to the beginning of the sans-serif list if found
+        if cjk_fonts:
+            mpl.rcParams['font.sans-serif'] = cjk_fonts[:3] + ['DejaVu Sans', 'Arial', 'sans-serif']
+            logger.info(f"Using CJK fonts: {cjk_fonts[:3]}")
         else:
-            # Fallback to original ratings file
-            df = pd.read_csv(old_ratings_path)
-            file_used = "player_elo_ratings.csv"
-        return df, file_used
+            mpl.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Arial', 'sans-serif']
+            logger.warning("No CJK fonts found")
+            
+        # Fix minus sign display
+        mpl.rcParams['axes.unicode_minus'] = False
+        
+        logger.info("Font configuration completed")
     except Exception as e:
-        st.error(f"Error loading player data: {e}")
-        return None, None
+        logger.error(f"Error configuring fonts: {e}")
+        st.warning("No font with CJK support detected. Some characters may not display correctly.")
 
-def get_player_match_history(player):
-    """Get match history for a specific player"""
-    match_files = load_match_history_files()
-    
-    if not match_files:
-        return None
-    
-    all_matches = []
-    for file in match_files:
-        try:
-            match_df = pd.read_csv(file)
-            filename = os.path.basename(file)
-            match_df["Session"] = filename.replace("match_history_with_elo_", "").replace(".csv", "")
-            # Escape special regex characters in player name and ensure exact player name matching
-            # by searching for the player surrounded by non-word characters or at start/end of string
-            player_escaped = re.escape(player)
-            pattern = f"(?:^|[^\\w]){player_escaped}(?:[^\\w]|$)"  # Using non-capturing groups
-            
-            # Filter for matches involving this player using regex
-            player_matches = match_df[
-                (match_df["Team A"].str.contains(pattern, regex=True)) | 
-                (match_df["Team B"].str.contains(pattern, regex=True))
-            ].copy()
-            
-            # If regex approach fails (no matches), fall back to simple contains
-            if len(player_matches) == 0:
-                player_matches = match_df[
-                    (match_df["Team A"].str.contains(player, regex=False)) | 
-                    (match_df["Team B"].str.contains(player, regex=False))
-                ].copy()
-            
-            # Add match index within the file to maintain original order
-            player_matches["Match_Index"] = range(len(player_matches))
-
-            # Add columns to identify which team the player was on and if they won
-            player_matches["Player's Team"] = "A"  # Default to team A
-
-            # For the regex approach
-            if 'pattern' in locals():
-                # Use the same regex pattern that was used for filtering
-                matches_in_team_a = player_matches["Team A"].str.contains(pattern, regex=True)
-                player_matches.loc[~matches_in_team_a, "Player's Team"] = "B"
-            else:
-                # Fallback to literal string matching (no regex)
-                matches_in_team_a = player_matches["Team A"].str.contains(player, regex=False)
-                player_matches.loc[~matches_in_team_a, "Player's Team"] = "B"
-            
-            player_matches["Result"] = "Won"
-            player_matches.loc[
-                ((player_matches["Player's Team"] == "A") & (player_matches["Winner"] != "Team A")) |
-                ((player_matches["Player's Team"] == "B") & (player_matches["Winner"] != "Team B")),
-                "Result"
-            ] = "Lost"
-            
-            # Reset the index to avoid duplicate indices when concatenating
-            player_matches = player_matches.reset_index(drop=True)
-            
-            all_matches.append(player_matches)
-        except Exception as e:
-            st.warning(f"Could not process file {file}: {e}")
-            continue
-    
-    if all_matches:
-        # Concatenate and reset index again to ensure unique indices
-        combined_matches = pd.concat(all_matches, ignore_index=True)
-        return combined_matches.sort_values(by=["Session", "Match_Index"], ascending=[False, False])
-    return None
-
-def load_session_stats_files():
-    """Load all session stats files in the data directory"""
-    # Use os.path.join for cross-platform compatibility
-    pattern = os.path.join(DATA_DIR, "session_stats_*.csv")
-    files = glob(pattern)
-    return sorted(files, reverse=True)  # Most recent first
-
-def is_mobile():
-    """Detect if user is on a mobile device based on screen width"""
-    try:
-        # Use browser's window dimensions through iframe communication
-        screen_width = st.session_state.get("screen_width", 1000)  # Default to desktop size
-        print(screen_width)
-        return screen_width < 768  # Common breakpoint for mobile devices
-    except:
-        return False  # Default to desktop view if detection fails
 
 def main():
+    global HIDDEN_PLAYERS
     st.title("🏸 Badminton ELO Rating System")
-    # Add tab for session results
-    tab1, tab2, tab3 = st.tabs(["Player Rankings", "Session Results", "Process New Results"])
+    # Add tab for manual match entry
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Player Rankings", "Session Results", "Head-to-Head", "Add Single Match", "Process New Results"])
 
     with tab1:
         # Load player data
-        player_df, file_used = load_player_data()
+        player_df = load_player_data()
         
         if player_df is not None:
-            st.success(f"Loaded player data from {file_used}")
+            st.success(f"Loaded player data with {len(player_df)} players.")
             
+            # Filter out players who opted to hide their rankings
+            public_players = player_df[~player_df["Player"].isin(HIDDEN_PLAYERS)].copy()
+                        
             # Select view mode
             view_mode = st.radio("Select view mode:", ["Summary View", "Detailed Player View"])
             
             if view_mode == "Summary View":
-                # Display ELO rankings and stats
+                # Display ELO rankings and stats for visible players only
                 st.subheader("📊 Player Rankings and Statistics")
                 
                 # Always sort by ELO Rating
-                player_df = player_df.sort_values(by="ELO", ascending=False)
+                public_players = public_players.sort_values(by="ELO", ascending=False)
                 
                 # Format columns for better display
-                display_df = player_df[['Player', 'ELO', 'total_games', 'total_wins', 'total_success_rate']]
+                display_df = public_players[['Player', 'ELO', 'total_games', 'total_wins', 'total_success_rate']]
                 display_df = display_df.rename(columns={
                     'total_games': 'Games Played',
                     'total_wins': 'Wins',
@@ -206,7 +149,8 @@ def main():
                     alpha=0.7, 
                     color='#4c72b0',
                     edgecolor='white', 
-                    linewidth=1
+                    linewidth=1,
+                    label='ELO Distribution'  # Add this label
                 )
                 # Improve styling
                 ax.set_xlabel('ELO Rating', fontsize=12)
@@ -245,7 +189,8 @@ def main():
                 st.subheader("🔍 Player Detail View")
                 
                 # Create selectbox with players sorted by ELO
-                sorted_players = player_df.sort_values(by="ELO", ascending=False)
+                # Use public_players instead of player_df to filter out hidden players
+                sorted_players = public_players.sort_values(by="ELO", ascending=False)
                 selected_player = st.selectbox(
                     "Select a player to view details:",
                     sorted_players["Player"].tolist()
@@ -330,8 +275,7 @@ def main():
                         if len(matches) > 1:
                             st.subheader("ELO Progression")
                             
-                            # We'll need to calculate cumulative ELO over time
-                            # First, sort by session date ascending
+                            # Sort by session date ascending
                             elo_progress = matches.sort_values(["Session", "Match_Index"], ascending=[True, True])
                             
                             # Get current ELO and work backwards
@@ -346,39 +290,82 @@ def main():
                                 running_elo -= change
                                 elo_values.insert(0, running_elo)
                             
-                            # Plot the progression
-                            fig, ax = plt.subplots(figsize=(10, 6))
-
-                            # Plot line with markers
-                            ax.plot(range(len(elo_values)), elo_values, marker='o', markersize=8, color='steelblue', linewidth=2)
-
-                            # Add text labels with exact values above each point
-                            for i, elo in enumerate(elo_values):
-                                ax.annotate(f'{elo:.0f}', 
-                                            (i, elo),
-                                            textcoords="offset points", 
-                                            xytext=(0, 10),  # Offset text 10 points above the point
-                                            ha='center',     # Center text horizontally
-                                            fontsize=9,      # Smaller font for readability
-                                            fontweight='bold')
-
-                            # Improve appearance
-                            ax.set_xlabel('Matches (Oldest to Newest)')
-                            ax.set_ylabel('ELO Rating')
-                            ax.grid(True, alpha=0.3)
-
-                            # Set y-axis limits with some padding
-                            y_min = min(elo_values) - 20
-                            y_max = max(elo_values) + 20
-                            ax.set_ylim(y_min, y_max)
-
-                            # Use integer ticks for x-axis
-                            ax.set_xticks(range(len(elo_values)))
-
-                            # Add a horizontal line at starting ELO for reference
-                            ax.axhline(y=1500, color='gray', linestyle='--', alpha=0.5)
-
-                            st.pyplot(fig)
+                            # Get match dates for better x-axis labels
+                            match_dates = elo_progress["Session"].values
+                            # Ensure unique x-axis values by adding match number to duplicate dates
+                            x_labels = []
+                            date_counts = {}
+                            for date in reversed(match_dates):
+                                if date in date_counts:
+                                    date_counts[date] -= 1
+                                else:
+                                    date_counts[date] = len([d for d in match_dates if d == date])
+                                x_labels.insert(0, f"{date}-{date_counts[date]}")
+                            # Add the initial point label
+                            x_labels.insert(0, "Start")
+                            
+                            mobile_view = True
+                            # Create a Plotly figure
+                            fig = go.Figure()
+                            
+                            # Add line trace with markers
+                            fig.add_trace(go.Scatter(
+                                x=list(range(len(elo_values))),
+                                y=elo_values,
+                                mode='lines+markers+text' if not mobile_view else 'lines+markers',
+                                marker=dict(size=8 if mobile_view else 10, color='steelblue'),
+                                line=dict(width=2, color='steelblue'),
+                                text=[f'{elo:.0f}' for elo in elo_values],
+                                textposition='top center',
+                                textfont=dict(size=10, color='black', family='Arial, sans-serif'),
+                                hoverinfo='text',
+                                hovertext=[f'Match: {x_labels[i]}<br>ELO: {elo:.0f}' for i, elo in enumerate(elo_values)],
+                                name='ELO Rating'
+                            ))
+                            
+                            # Add a horizontal line at starting ELO (1500) for reference
+                            fig.add_shape(
+                                type='line',
+                                x0=0,
+                                y0=1500,
+                                x1=len(elo_values)-1,
+                                y1=1500,
+                                line=dict(color='gray', dash='dash', width=1)
+                            )
+                            
+                            # Update layout for better appearance
+                            fig.update_layout(
+                                xaxis=dict(
+                                    title='Matches',
+                                    tickmode='array',
+                                    tickvals=list(range(len(elo_values))) if len(elo_values) < 8 or not mobile_view else list(range(0, len(elo_values), max(1, len(elo_values) // 5))),
+                                    ticktext=[str(i) for i in range(len(elo_values))] if len(elo_values) < 8 or not mobile_view else [str(i) for i in range(0, len(elo_values), max(1, len(elo_values) // 5))],
+                                    tickangle=45 if mobile_view else 0  # Angle ticks on mobile
+                                ),
+                                yaxis=dict(
+                                    title=None if mobile_view else 'ELO Rating',
+                                    range=[min(elo_values) - 20, max(elo_values) + 20]
+                                ),
+                                showlegend=False,
+                                hovermode='closest',
+                                plot_bgcolor='white',
+                                margin=dict(l=10 if mobile_view else 40, 
+                                            r=10 if mobile_view else 20, 
+                                            t=30,  
+                                            b=40 if mobile_view else 50),
+                            )
+                            
+                            # Add grid lines
+                            fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='lightgray')
+                            fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='lightgray')
+                            
+                            # Enable panning, zooming and other interactive features
+                            fig.update_layout(
+                                dragmode='pan',  # Enable panning by default
+                            )
+                            height = None if not mobile_view else 400
+                            # Display the interactive plot
+                            st.plotly_chart(fig, use_container_width=True, height=height)
                     else:
                         st.info("No match history found for this player.")
                 
@@ -421,11 +408,13 @@ def main():
                 try:
                     session_df = pd.read_csv(session_file)
                     
+                    # Filter out hidden players
+                    public_session_df = session_df[~session_df["Player"].isin(HIDDEN_PLAYERS)].copy()    
                     # Display simple header with date
                     st.subheader(f"Results for {selected_date}")
                     
                     # Create a display dataframe with the columns we want, sorted by ELO change
-                    session_df = session_df.rename(columns={
+                    public_session_df = public_session_df.rename(columns={
                         'total_games': 'Games Played',
                         'total_wins': 'Wins',
                         'total_success_rate': 'Win Rate',
@@ -441,7 +430,7 @@ def main():
                     # Add ELO column from player data
                     # Display the table without index
                     st.dataframe(
-                        session_df,
+                        public_session_df,
                         column_config={
                             "ELO Change": st.column_config.NumberColumn(format="%.1f")
                         },
@@ -449,7 +438,8 @@ def main():
                     )
                 except Exception as e:
                     st.error(f"Error loading session data: {e}")
-    with tab3:
+    
+    with tab5:
         st.subheader("Process New Match Results")
         uploaded_file = st.file_uploader(
             "Upload Excel file with match results", 
@@ -470,8 +460,7 @@ def main():
                     with st.spinner("Processing results..."):
                         elo_df, history_df, stats_df, session_df = calculate_elo_ratings(
                             temp_file, 
-                            sheet_name,
-                            DATA_DIR  # Pass the data directory
+                            sheet_name
                         )
                         
                         st.success("Results processed successfully!")
@@ -526,6 +515,308 @@ def main():
                         os.remove(temp_file)
         else:
             st.info("Please upload an Excel file with match results to process.")
+    
+    with tab3:
+        st.subheader("🤺 Head-to-Head Comparison")
+        
+        # Load player data for the dropdowns
+        player_df = load_player_data()
+        
+        if player_df is not None:
+            # Create two columns for selecting players
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                player1 = st.selectbox(
+                    "Select first player:",
+                    options=sorted(player_df["Player"].tolist()),
+                    key="player1_select"
+                )
+                
+            with col2:
+                # Filter options to only players who have played against player1
+                if player1:
+                    player2_options = get_player_opponents(player1)
+                    if not player2_options:
+                        st.info(f"No opponents found for {player1}.")
+                        player2 = None
+                    else:
+                        player2 = st.selectbox(
+                            "Select second player:",
+                            options=player2_options,
+                            key="player2_select"
+                        )
+                else:
+                    player2 = None
+                    st.info("Please select a player first.")
+            
+            if player1 and player2:
+                if st.button("Show Head-to-Head Stats"):
+                    # Get head-to-head history
+                    h2h_data = get_head_to_head_history(player1, player2)
+                    
+                    if h2h_data and h2h_data["total_matches"] > 0:
+                        # Display summary statistics
+                        st.subheader(f"{player1} vs {player2}")
+                        
+                        # Create metrics for easy viewing
+                        metric_cols = st.columns(3)
+                        with metric_cols[0]:
+                            st.metric("Total Matches", h2h_data["total_matches"])
+                        with metric_cols[1]:
+                            st.metric(f"{player1} Wins", h2h_data["player1_wins"])
+                        with metric_cols[2]:
+                            st.metric(f"{player2} Wins", h2h_data["player2_wins"])
+                        
+                        # Display the actual match history
+                        st.subheader("Match History")
+                        
+                        # Select and rename columns for better display
+                        display_cols = ["Session", "Team A", "Team B", "Score", "Winner"]
+                        matches_display = h2h_data["matches"][display_cols].copy()
+                        
+                        # Format the display to highlight which player was on which team
+                        matches_display["Result"] = "Draw"
+                        for idx, row in matches_display.iterrows():
+                            if row["Winner"] == "Team A":
+                                if row["Team A"].find(player1) >= 0:
+                                    matches_display.at[idx, "Result"] = f"{player1} Won"
+                                else:
+                                    matches_display.at[idx, "Result"] = f"{player2} Won"
+                            elif row["Winner"] == "Team B":
+                                if row["Team B"].find(player1) >= 0:
+                                    matches_display.at[idx, "Result"] = f"{player1} Won"
+                                else:
+                                    matches_display.at[idx, "Result"] = f"{player2} Won"
+                        
+                        # Display the match history
+                        st.dataframe(
+                            matches_display[["Session", "Team A", "Team B", "Score", "Result"]],
+                            column_config={
+                                "Session": st.column_config.TextColumn(
+                                    "Date",
+                                    help="Date when the match was played"
+                            )
+                        },
+                        hide_index=True
+                    )
+                    
+                    # Check if we have enough data for a visualization
+                    if h2h_data and h2h_data["total_matches"] > 1:
+                        st.subheader("Head-to-Head Summary")
+                        
+                        # Create a pie chart showing win distribution
+                        fig, ax = plt.subplots(figsize=(8, 6))
+                        labels = [f"{player1} Wins", f"{player2} Wins"]
+                        sizes = [h2h_data["player1_wins"], h2h_data["player2_wins"]]
+                        
+                        # Only include non-zero values
+                        non_zero_labels = [label for label, size in zip(labels, sizes) if size > 0]
+                        non_zero_sizes = [size for size in sizes if size > 0]
+                        
+                        if non_zero_sizes:
+                            # Create the pie chart
+                            ax.pie(non_zero_sizes, labels=non_zero_labels, autopct='%1.1f%%',
+                                   shadow=False, startangle=90)
+                            ax.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle
+                            st.pyplot(fig)
+        else:
+            st.error("Could not load player data. Please check if player data files exist.")
+
+    # Add the new tab for manual match entry
+    with tab4:
+        st.subheader("✏️ Add Single Match Result")
+        
+        # Load player data for selection
+        player_df = load_player_data()
+        player_list = []
+        
+        if player_df is not None:
+            player_list = sorted(player_df["Player"].tolist())
+            
+            # Step 1: Add new players if needed
+            st.subheader("Step 1: Add New Players")
+            st.write("Add any new players before entering match results.")
+            
+            # Create two columns for adding new players
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                new_player_name = st.text_input("New Player Name", key="new_player_name")
+            
+            with col2:
+                new_player_gender = st.selectbox("Gender", ["Male", "Female"], key="new_player_gender")
+                
+            # Button to add the player
+            if st.button("Add Player"):
+                if not new_player_name:
+                    st.error("Please enter a player name.")
+                else:
+                    # Add (F) suffix if female
+                    player_full_name = f"{new_player_name}(F)" if new_player_gender == "Female" else new_player_name
+                    
+                    # Check if player already exists
+                    if player_full_name in player_list:
+                        st.error(f"Player '{player_full_name}' already exists.")
+                    else:
+                        # Add default entry to player ELO ratings file
+                        try:
+                            from elo_system import load_existing_player_data, DEFAULT_ELO
+                            from data_io import add_new_player
+                            add_new_player(player_full_name, DEFAULT_ELO)
+                            # After successful addition, set a flag to clear the form
+                            st.session_state["player_added"] = True
+                            st.success(f"Player '{player_full_name}' added successfully!")
+                            # Reload player list to include the new player
+                            updated_df = load_player_data()
+                            if updated_df is not None:
+                                player_list = sorted(updated_df["Player"].tolist())
+                        except Exception as e:
+                            st.error(f"Error adding new player: {e}")
+        
+        # Display current player list
+        with st.expander("Current Player List"):
+            if player_list:
+                st.write(", ".join(player_list))
+            else:
+                st.write("No players found.")
+        
+        # Step 2: Enter match details
+        st.subheader("Step 2: Enter Match Details")
+        
+        # Create form for match entry
+        with st.form("match_form"):
+            st.write("### Team A")
+            col1a, col2a = st.columns(2)
+            with col1a:
+                a1_player = st.selectbox("Player 1", player_list, key="a1_select")
+            with col2a:
+                a2_player = st.selectbox("Player 2", player_list, key="a2_select", index=1 if len(player_list) > 1 else 0)
+            
+            st.write("### Team B")
+            col1b, col2b = st.columns(2)
+            with col1b:
+                b1_player = st.selectbox("Player 1", player_list, key="b1_select", index=2 if len(player_list) > 2 else 0)
+            with col2b:
+                b2_player = st.selectbox("Player 2", player_list, key="b2_select", index=3 if len(player_list) > 3 else 0)
+            
+            # Match details
+            st.write("### Match Details")
+            col1c, col2c = st.columns(2)
+            with col1c:
+                st.write("First score is always Team A's score")
+                score = st.text_input("Score (e.g., 21-19 means Team A won)", "21-0")
+            
+            # Submit button
+            submit_button = st.form_submit_button("Add Match")
+        
+        # Process form submission
+        if submit_button:
+            # Validate inputs
+            error = None
+            
+            # Check for duplicate players
+            players = [a1_player, a2_player, b1_player, b2_player]
+            if len(set(players)) < 4:
+                error = "All players must be different"
+            
+            # Validate score format
+            if not re.match(r'^\d+-\d+$', score):
+                error = "Score must be in format: 21-19"
+            
+            if error:
+                st.error(error)
+            else:
+                # Process the match
+                team_a = [a1_player, a2_player]
+                team_b = [b1_player, b2_player]
+                
+                success, message = process_single_match(team_a, team_b, score)
+                
+                if success:
+                    st.success(message)
+                else:
+                    st.error(message)
+
+
+
+def process_single_match(team_a, team_b, score, data_dir=DATA_DIR):
+    """Process a single match entered manually."""
+    try:
+        from elo_system import (load_existing_player_data, process_match, 
+                                create_stats_dataframe)
+        
+        # Load existing player data using the function from elo_system
+        player_elos, player_stats = load_existing_player_data()
+        
+        # Store initial ELOs to calculate changes after the match
+        initial_elos = dict(player_elos)
+        
+        # Initialize session stats tracker (needed for process_match)
+        session_stats = defaultdict(lambda: {
+            "total": {"games": 0, "wins": 0},
+            "male_double": {"games": 0, "wins": 0},
+            "female_double": {"games": 0, "wins": 0},
+            "mixed": {"games": 0, "wins": 0}
+        })
+        
+        # Format the match data to match what process_match expects
+        team_a_str = f"{team_a[0]}/{team_a[1]}"
+        team_b_str = f"{team_b[0]}/{team_b[1]}"
+        match_str = f"{team_a_str} vs {team_b_str}"
+        
+        # Format score to match what process_match expects
+        score_parts = score.split("-")
+        if len(score_parts) != 2:
+            return False, "Score must be in format: 21-19"
+            
+        score_str = f"{score_parts[0]}:{score_parts[1]}"
+        
+        # Court is arbitrary for manual entry
+        court = "Manual"
+        
+        # Process the match using the existing function from elo_system
+        match_record = process_match(
+            court, match_str, score_str,
+            player_elos, player_stats, session_stats
+        )
+        
+        if not match_record:
+            return False, "Failed to process match. Please check input data."
+            
+        # Create a match history dataframe with this one match
+        match_history = [match_record]
+        history_df = pd.DataFrame(match_history)
+        save_match_history(history_df)
+            
+        # Create the player ratings dataframe
+        elo_df = pd.DataFrame(player_elos.items(), columns=['Player', 'ELO'])
+        
+        # Create the player statistics dataframe
+        stats_df = create_stats_dataframe(player_stats)
+        
+        # Merge player stats with ELO ratings
+        combined_df = pd.merge(elo_df, stats_df, on="Player")
+        save_player_data(combined_df)
+
+        # Calculate ELO changes for this session
+        elo_changes = {}
+        for player, final_elo in player_elos.items():
+            # If player is new, initial ELO was DEFAULT_ELO
+            initial_elo = initial_elos.get(player, 1500)
+            elo_changes[player] = round(final_elo - initial_elo, 1)
+        
+        # Create and save session stats
+        session_df = create_stats_dataframe(session_stats)
+        session_df['elo_change'] = session_df['Player'].map(elo_changes)
+        save_session_stats(session_df)        
+        return True, "Match processed successfully. Player ratings have been updated."
+        
+    except Exception as e:
+        logging.error(f"Error processing single match: {e}")
+        return False, f"Error processing match: {e}"
+
 
 if __name__ == "__main__":
+    configure_matplotlib_fonts()  # Configure fonts at the start
     main()

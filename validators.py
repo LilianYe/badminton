@@ -163,7 +163,9 @@ def check_opponent_frequency(rounds_lineups, max_opponent_frequency):
     # Find frequent matchups
     frequent_matchups = [(pair, count) for pair, count in opponent_counts.items() 
                          if count > max_opponent_frequency]
-    
+    max_frequent_matchups = [(pair, count) for pair, count in opponent_counts.items() 
+                         if count == max_opponent_frequency]
+    print(f"Maximum frequency of matchups: {max_frequent_matchups}")
     is_valid = len(frequent_matchups) == 0
     
     if not is_valid:
@@ -211,10 +213,9 @@ def check_consecutive_rounds(players, rounds_lineups):
         streaks = [len(streak) for streak in activity_str.split('0') if streak]
         max_streak = max(streaks) if streaks else 0
         max_consecutive[player] = max_streak
-    
-    # Identify players with too many consecutive rounds (4 or more)
-    problematic_players = {p: streak for p, streak in max_consecutive.items() if streak >= 4}
     print(max_consecutive)
+    # Identify players with too many consecutive rounds (5 or more)
+    problematic_players = {p: streak for p, streak in max_consecutive.items() if streak >= 5}
     is_valid = len(problematic_players) == 0
     
     if not is_valid:
@@ -226,14 +227,13 @@ def check_consecutive_rounds(players, rounds_lineups):
     return is_valid, max_consecutive
 
 
-def save_schedule_to_excel(rest_schedule, rounds_lineups, start_hour=17):
+def save_schedule_to_excel(rest_schedule, rounds_lineups, output_file, start_hour=17):
     """
     Save the badminton schedule to an Excel file with all courts on a single line
     and referees on a separate line with support for variable number of courts per round
     """
     # Create a new Excel writer
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_file = f"badminton_schedule_{timestamp}.xlsx"
     writer = pd.ExcelWriter(output_file, engine='openpyxl')
     
     # Create data for schedule sheet
@@ -364,7 +364,7 @@ def check_existing_schedule(excel_path):
     """
     # Load schedule from Excel
     rounds_lineups = extract_rounds_from_excel(excel_path)
-    player_elos, _ = load_existing_player_data('data')
+    player_elos, _ = load_existing_player_data()
     elo_threshold = 70  # Example threshold, adjust as needed
     max_opponent_frequency = 4  # Example limit, adjust as needed
     # Get all players
@@ -387,3 +387,5 @@ def check_existing_schedule(excel_path):
     print(f"Opponent frequency check: {'✓ All matchups within frequency limit' if opponent_valid else '✗ Some matchups exceed limit'}")
     print(f"Consecutive rounds check: {'✓ No excessive consecutive play' if consecutive_valid else '✗ Some players have too many consecutive rounds'}")
 
+
+check_existing_schedule('badminton_schedule_90_200final2.xlsx')

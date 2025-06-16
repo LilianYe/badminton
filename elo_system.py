@@ -1,10 +1,8 @@
-# 羽毛球双打 Elo 分系统
 import pandas as pd
 from collections import defaultdict
-from datetime import datetime
-import os
+from data_io import save_player_data, save_match_history, save_session_stats
 
-DEFAULT_ELO = 1550  # 默认 Elo 分数
+DEFAULT_ELO = 1500  # 默认 Elo 分数
 
 def expected_score(team_elo_a, team_elo_b):
     """计算 A 队胜率预期"""
@@ -17,6 +15,7 @@ def update_elo(player_elo, expected, actual, k=32):
 def compute_team_elo(player1_elo, player2_elo):
     """队伍 Elo 平均"""
     return (player1_elo + player2_elo) / 2
+
 
 def update_doubles_match(
     team_a,  # (p1_name, p2_name)
@@ -43,7 +42,7 @@ def update_doubles_match(
     elos[p2b] = update_elo(elos[p2b], expected_b, actual_b)
     return elos
 
-def load_existing_player_data(data_dir=None):
+def load_existing_player_data():
     """
     Load existing player ELO ratings and statistics from CSV.
     
@@ -53,26 +52,18 @@ def load_existing_player_data(data_dir=None):
     Returns:
         Tuple containing player ELO ratings dict and player statistics dict
     """
-    
+    from data_io import load_player_data
     player_stats = defaultdict(lambda: {
         "total": {"games": 0, "wins": 0},
         "male_double": {"games": 0, "wins": 0},
         "female_double": {"games": 0, "wins": 0},
         "mixed": {"games": 0, "wins": 0}
     })
-    
-    # Use data_dir if provided
-    ratings_file = "player_elo_ratings.csv"
-    if data_dir:
-        ratings_file = os.path.join(data_dir, ratings_file)
-    
     try:
-        existing_df = pd.read_csv(ratings_file)
-        print(f"Loaded data for {len(existing_df)} existing players from {ratings_file}")
-        
+        existing_df = load_player_data()
+        print(f"Loaded data for {len(existing_df)} existing players")
         # Create a dictionary from Player -> ELO column
         existing_elos = dict(zip(existing_df['Player'], existing_df['ELO']))
-        
         # Initialize ELO dictionary with existing values, defaulting to DEFAULT_ELO for new players
         player_elos = defaultdict(lambda: DEFAULT_ELO)
         # Update with existing values
@@ -102,10 +93,6 @@ def load_existing_player_data(data_dir=None):
                 if all(col in existing_df.columns for col in ['mixed_games', 'mixed_wins']):
                     player_stats[player]["mixed"]["games"] = row['mixed_games']
                     player_stats[player]["mixed"]["wins"] = row['mixed_wins']
-        print(f"Loaded statistics and ratings for existing players")
-        player_elos['浩南'] = 1600
-        player_elos['OwenWei'] = 1650 
-        player_elos['方文'] = 1600 
         return player_elos, player_stats
         
     except FileNotFoundError:
@@ -302,52 +289,7 @@ def create_stats_dataframe(stats_dict):
     return stats_df
 
 
-def save_results(elo_df, stats_df, history_df, session_df, data_dir=None):
-    """
-    Save all results to CSV files with appropriate timestamps.
-    
-    Args:
-        elo_df: DataFrame containing player ELO ratings
-        stats_df: DataFrame containing player statistics
-        history_df: DataFrame containing match history
-        session_df: DataFrame containing current session statistics
-        data_dir: Directory to save files to (defaults to current directory if None)
-    """
-    
-    # Use data_dir if provided, otherwise use current directory
-    save_dir = data_dir if data_dir else "."
-    
-    # Ensure the directory exists
-    if not os.path.exists(save_dir):
-        os.makedirs(save_dir)
-    
-    # Merge player stats with ELO ratings
-    combined_df = pd.merge(elo_df, stats_df, on="Player")
-    
-    # Save combined results to player_elo_ratings_new.csv
-    combined_path = os.path.join(save_dir, "player_elo_ratings_new.csv")
-    combined_df.to_csv(combined_path, index=False, encoding="utf-8-sig")
-    
-    # Generate timestamp for the match history file
-    timestamp = datetime.now().strftime("%Y%m%d")
-    
-    # Save match history with timestamp in filename
-    match_history_filename = f"match_history_with_elo_{timestamp}.csv"
-    history_path = os.path.join(save_dir, match_history_filename)
-    history_df.to_csv(history_path, index=False, encoding="utf-8-sig")
-    
-    # Save session stats with timestamp in filename
-    session_stats_filename = f"session_stats_{timestamp}.csv"
-    session_path = os.path.join(save_dir, session_stats_filename)
-    if not session_df.empty:
-        session_df.to_csv(session_path, index=False, encoding="utf-8-sig")
-    
-    print(f"\nCombined ELO ratings and statistics saved to '{combined_path}'")
-    print(f"Match history with ELO changes saved to '{history_path}'")
-    print(f"Current session statistics saved to '{session_path}'")
-
-
-def calculate_elo_ratings(excel_path, sheet_name="Schedule", data_dir=None):
+def calculate_elo_ratings(excel_path, sheet_name="Schedule"):
     """
     Calculate ELO ratings for players based on match results in the Excel file.
     Uses existing ratings and statistics from player_elo_ratings.csv if available.
@@ -369,7 +311,7 @@ def calculate_elo_ratings(excel_path, sheet_name="Schedule", data_dir=None):
     })
     
     # Load existing player data
-    player_elos, player_stats = load_existing_player_data(data_dir)
+    player_elos, player_stats = load_existing_player_data()
     
     # Store initial ELO ratings to calculate changes after the session
     initial_elos = dict(player_elos)
@@ -410,10 +352,12 @@ def calculate_elo_ratings(excel_path, sheet_name="Schedule", data_dir=None):
     print("\n=== FINAL ELO RATINGS ===")
     print(elo_df.to_string(float_format='%.1f'))
     
-    # Save all results to files
-    save_results(elo_df, stats_df, history_df, session_df, data_dir)
-    
+    combined_df = pd.merge(elo_df, stats_df, on="Player")
+    save_player_data(combined_df)
+    save_match_history(history_df)
+    save_session_stats(session_df)  
     return elo_df, history_df, stats_df, session_df
+
 
 def calculate_success_rate(wins, games):
     """Calculate success rate as a formatted percentage string"""
@@ -426,4 +370,4 @@ if __name__ == "__main__":
     # Example usage:
     # Specify the path to your Excel file containing match results
     # You can change this path to your actual file location
-    elo_df, history_df, stats_df, session_df = calculate_elo_ratings('./results/20250604.xlsx', data_dir='data')
+    elo_df, history_df, stats_df, session_df = calculate_elo_ratings('./results/20250604.xlsx')
