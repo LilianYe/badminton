@@ -40,7 +40,6 @@ def check_play_times(players, rounds_lineups, game_per_player):
             print(f"  {player}: {count} times")
     else:
         print(f"✓ All players play exactly {game_per_player} times as expected.")        
-    return is_valid, play_counts
 
 
 def check_partnerships(rounds_lineups):
@@ -75,8 +74,8 @@ def check_partnerships(rounds_lineups):
         if count > 1:
             print(f"Partnership {pair} has been scheduled {count} times.")
     is_valid = len(repeated_pairs) == 0
-    return is_valid, repeated_pairs, partnerships
-
+    if is_valid:
+        print("✓ All partnerships are unique.")
 
 
 def check_gender_balance(rounds_lineups):
@@ -103,6 +102,12 @@ def check_gender_balance(rounds_lineups):
                 imbalanced_courts.append((round_num, court_idx, team1_females, team2_females))
     
     is_valid = len(imbalanced_courts) == 0
+    if is_valid:
+        print("✓ All courts ars gender-balanced.")
+    else:
+        print("The following courts are not gender-balanced:")
+        for round_num, court_idx, team1_females, team2_females in imbalanced_courts:
+            print(f"  Round {round_num}, Court {court_idx}: Team 1 has {team1_females} females, Team 2 has {team2_females} females")
     return is_valid, imbalanced_courts
 
 
@@ -130,7 +135,12 @@ def check_elo_balance(rounds_lineups, player_elos, elo_threshold):
                 imbalanced_courts.append((round_num, court_idx, team1_elo, team2_elo, elo_diff))
     
     is_valid = len(imbalanced_courts) == 0
-    return is_valid, imbalanced_courts
+    if is_valid:
+        print("✓ All courts are ELO-balanced.")
+    else:
+        print("The following courts have ELO imbalances:")
+        for round_num, court_idx, team1_elo, team2_elo, elo_diff in imbalanced_courts:
+            print(f"  Round {round_num}, Court {court_idx}: Team ELOs {team1_elo:.1f} vs {team2_elo:.1f} (Diff: {elo_diff:.1f})")
 
 
 def check_opponent_frequency(rounds_lineups, max_opponent_frequency):
@@ -163,9 +173,6 @@ def check_opponent_frequency(rounds_lineups, max_opponent_frequency):
     # Find frequent matchups
     frequent_matchups = [(pair, count) for pair, count in opponent_counts.items() 
                          if count > max_opponent_frequency]
-    max_frequent_matchups = [(pair, count) for pair, count in opponent_counts.items() 
-                         if count == max_opponent_frequency]
-    print(f"Maximum frequency of matchups: {max_frequent_matchups}")
     is_valid = len(frequent_matchups) == 0
     
     if not is_valid:
@@ -174,11 +181,9 @@ def check_opponent_frequency(rounds_lineups, max_opponent_frequency):
             print(f"  {pair[0]} vs {pair[1]}: {count} times (limit: {max_opponent_frequency})")
     else:
         print(f"✓ No players face each other more than {max_opponent_frequency} times.")
-        
-    return is_valid, frequent_matchups
 
 
-def check_consecutive_rounds(players, rounds_lineups):
+def check_consecutive_rounds(players, rounds_lineups, max_consecutive_allowed):
     """
     Check if any player is scheduled to play in 4 or more consecutive rounds.
     
@@ -213,9 +218,8 @@ def check_consecutive_rounds(players, rounds_lineups):
         streaks = [len(streak) for streak in activity_str.split('0') if streak]
         max_streak = max(streaks) if streaks else 0
         max_consecutive[player] = max_streak
-    print(max_consecutive)
-    # Identify players with too many consecutive rounds (5 or more)
-    problematic_players = {p: streak for p, streak in max_consecutive.items() if streak >= 5}
+    # Identify players with too many consecutive rounds
+    problematic_players = {p: streak for p, streak in max_consecutive.items() if streak > max_consecutive_allowed}
     is_valid = len(problematic_players) == 0
     
     if not is_valid:
@@ -223,8 +227,7 @@ def check_consecutive_rounds(players, rounds_lineups):
         for player, streak in sorted(problematic_players.items(), key=lambda x: x[1], reverse=True):
             print(f"  {player}: {streak} consecutive rounds")
     else:
-        print("✓ No players have too many consecutive rounds (max allowed: 3)")
-    return is_valid, max_consecutive
+        print(f"✓ No players have too many consecutive rounds (max allowed: {max_consecutive_allowed})")
 
 
 def save_schedule_to_excel(rest_schedule, rounds_lineups, output_file, start_hour=17):
@@ -366,7 +369,7 @@ def check_existing_schedule(excel_path):
     rounds_lineups = extract_rounds_from_excel(excel_path)
     player_elos, _ = load_existing_player_data()
     elo_threshold = 70  # Example threshold, adjust as needed
-    max_opponent_frequency = 4  # Example limit, adjust as needed
+    max_opponent_frequency = 3  # Example limit, adjust as needed
     # Get all players
     all_players = set()
     for round_courts in rounds_lineups:
@@ -375,17 +378,111 @@ def check_existing_schedule(excel_path):
                 all_players.add(player)
     all_players = list(all_players)
     # Run validation checks
-    partnerships_valid, repeated_pairs, _ = check_partnerships(rounds_lineups)
-    gender_valid, imbalanced_courts = check_gender_balance(rounds_lineups)
-    elo_valid, elo_imbalanced = check_elo_balance(rounds_lineups, player_elos, elo_threshold)
-    opponent_valid, frequent_matchups = check_opponent_frequency(rounds_lineups, max_opponent_frequency)
-    consecutive_valid, consecutive_streaks = check_consecutive_rounds(all_players, rounds_lineups)
-
-    print(f"Partnership check: {'✓ No repeated partnerships' if partnerships_valid else '✗ Has repeated partnerships'}")
-    print(f"Gender balance check: {'✓ All courts gender-balanced' if gender_valid else '✗ Some courts are imbalanced'}")
-    print(f"ELO balance check: {f'✓ All courts within ELO threshold {elo_threshold}' if elo_valid else '✗ Some courts exceed ELO threshold'}")
-    print(f"Opponent frequency check: {'✓ All matchups within frequency limit' if opponent_valid else '✗ Some matchups exceed limit'}")
-    print(f"Consecutive rounds check: {'✓ No excessive consecutive play' if consecutive_valid else '✗ Some players have too many consecutive rounds'}")
+    check_play_times(all_players, rounds_lineups, game_per_player=6)
+    check_partnerships(rounds_lineups)
+    check_gender_balance(rounds_lineups)
+    check_elo_balance(rounds_lineups, player_elos, elo_threshold)
+    check_opponent_frequency(rounds_lineups, max_opponent_frequency)
+    check_consecutive_rounds(all_players, rounds_lineups, 3)
+    expected_win_valid, _, _ = check_expected_win_balance(rounds_lineups, player_elos)
 
 
-check_existing_schedule('badminton_schedule_90_200final2.xlsx')
+def check_expected_win_balance(rounds_lineups, player_elos):
+    """
+    Check if players have a balanced number of matches where their team has an ELO advantage.
+    
+    Args:
+        rounds_lineups: List of round lineups, each containing court assignments
+        player_elos: Dictionary of player ELO ratings
+        
+    Returns:
+        tuple: (is_valid, player_expected_wins, player_expected_win_pct) - 
+               Boolean indicating if expected win distribution is fair,
+               dictionaries of each player's expected win count and percentages
+    """
+    # Initialize counters for each player
+    players = set()
+    for round_courts in rounds_lineups:
+        for court in round_courts:
+            for player in court:
+                players.add(player)
+    
+    player_matches = {p: 0 for p in players}
+    player_expected_wins = {p: 0 for p in players}
+    
+    # Analyze each match
+    for round_courts in rounds_lineups:
+        for court in round_courts:
+            # Each court has 4 players: [team1_player1, team1_player2, team2_player1, team2_player2]
+            team1 = court[0:2]
+            team2 = court[2:4]
+            
+            # Calculate team average ELOs
+            team1_avg_elo = (player_elos.get(team1[0]) + player_elos.get(team1[1])) / 2
+            team2_avg_elo = (player_elos.get(team2[0]) + player_elos.get(team2[1])) / 2
+            
+            # For each player in team 1, check if their team has an advantage
+            for player in team1:
+                player_matches[player] += 1
+                if team1_avg_elo > team2_avg_elo:
+                    player_expected_wins[player] += 1
+            
+            # For each player in team 2, check if their team has an advantage
+            for player in team2:
+                player_matches[player] += 1
+                if team2_avg_elo > team1_avg_elo:
+                    player_expected_wins[player] += 1
+    
+    # Calculate expected win percentage for each player
+    player_expected_win_pct = {}
+    for player in players:
+        if player_matches[player] > 0:
+            player_expected_win_pct[player] = (player_expected_wins[player] / player_matches[player]) * 100
+        else:
+            player_expected_win_pct[player] = 0
+    
+    # Find the range of expected win percentages
+    min_pct = min(player_expected_win_pct.values()) if player_expected_win_pct else 0
+    max_pct = max(player_expected_win_pct.values()) if player_expected_win_pct else 0
+    avg_pct = sum(player_expected_win_pct.values()) / len(player_expected_win_pct) if player_expected_win_pct else 0
+    range_pct = max_pct - min_pct
+    
+    # Determine if the range is acceptable (e.g., within 25% points)
+    threshold = 25  # Adjust this threshold as needed
+    is_valid = range_pct <= threshold
+    
+    # Print results
+    print(f"\nExpected Win Balance Check:")
+    print(f"Expected win percentage range: {min_pct:.1f}% - {max_pct:.1f}% (range: {range_pct:.1f}%)")
+    print(f"Average expected win percentage: {avg_pct:.1f}%")
+    
+    # Find players with extreme values
+    low_players = {p: pct for p, pct in player_expected_win_pct.items() if pct < avg_pct - (threshold/2)}
+    high_players = {p: pct for p, pct in player_expected_win_pct.items() if pct > avg_pct + (threshold/2)}
+    
+    if not is_valid:
+        print("\nThe following players have significantly different expected win opportunities:")
+        print("\nPlayers with LOW expected win opportunities:")
+        for player, pct in sorted(low_players.items(), key=lambda x: x[1]):
+            wins = player_expected_wins[player]
+            matches = player_matches[player]
+            print(f"  {player}: {pct:.1f}% ({wins}/{matches} matches with advantage)")
+            
+        print("\nPlayers with HIGH expected win opportunities:")
+        for player, pct in sorted(high_players.items(), key=lambda x: x[1], reverse=True):
+            wins = player_expected_wins[player]
+            matches = player_matches[player]
+            print(f"  {player}: {pct:.1f}% ({wins}/{matches} matches with advantage)")
+    else:
+        print(f"✓ All players have balanced expected win opportunities (range within {threshold}% points)")
+    
+    return is_valid, player_expected_wins, player_expected_win_pct
+
+if __name__ == "__main__":
+    # Example usage
+    # Generate a schedule (uncomment to generate a new schedule)
+    # players = ["Alice(F)", "Bob(M)", "Charlie(M)", "Diana(F)", "Eve(F)", "Frank(M)"]
+    # rounds_lineups = scheduler.generate_schedule(players, court_count=2, start_hour=17, elo_threshold=70, game_per_player=3, team_elo_diff=50)
+    
+    # Check an existing schedule
+    check_existing_schedule('badminton_schedule_70_300.xlsx')

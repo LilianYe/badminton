@@ -6,6 +6,7 @@ from elo_system import compute_team_elo
 COURT_SIZE = 4  # Number of players per court (2 per team)
 global_partnerships = defaultdict(int)  # Global partnerships tracker
 global_opponents = defaultdict(int)  # Global opponents tracker
+global_expected_wins = defaultdict(int)  # Global expected wins tracker
 
 
 def generate_rotation(players, court_count, game_per_player, elo_threshold, player_elos, team_elo_diff):
@@ -24,12 +25,13 @@ def generate_rotation(players, court_count, game_per_player, elo_threshold, play
         Tuple of (rest_schedule, rounds_lineups)
     """
     # Initialize global dictionaries for tracking partnerships and opponents
-    global global_partnerships, global_opponents
+    global global_partnerships, global_opponents, global_expected_wins
     # Maximum number of times two players can play against each other
-    max_opponent_frequency = game_per_player // 2
+    max_opponent_frequency = game_per_player // 2 + 1
     
-    female_players = [p for p in players if p.endswith("(F)")]
-    female_set = set(female_players)
+    female_set = set([p for p in players if p.endswith("(F)")])
+    # female_set = set()
+
     total_players = len(players)
     
     # Calculate total player-games needed (each player plays game_per_player games)
@@ -55,6 +57,9 @@ def generate_rotation(players, court_count, game_per_player, elo_threshold, play
         if remaining_player_games % COURT_SIZE != 0:
             last_round_courts += 1
     
+    every_round_rest_number = total_players - court_count * COURT_SIZE
+    max_consecutive_rounds = total_players // every_round_rest_number - 1 if total_players % every_round_rest_number == 0 else total_players // every_round_rest_number
+
     print(f"Schedule parameters:")
     print(f"- Total players: {total_players}")
     print(f"- Courts per round: {court_count} (except possibly last round)")
@@ -63,7 +68,8 @@ def generate_rotation(players, court_count, game_per_player, elo_threshold, play
     print(f"- Calculated rounds needed: {rounds} ({full_rounds} full rounds + {1 if has_partial_round else 0} partial round)")
     print(f"- Courts in last round: {last_round_courts}")
     print(f"- max_opponent_frequency: {max_opponent_frequency}")
-    print(f"- female players size: {len(female_players)}")
+    print(f"- female players size: {len(female_set)}")
+    print(f'Maximum consecutive rounds a player can play: {max_consecutive_rounds}')
     # Create a list of court counts for each round
     courts_per_round = [court_count] * (rounds - 1) + [last_round_courts]
     
@@ -82,7 +88,7 @@ def generate_rotation(players, court_count, game_per_player, elo_threshold, play
     
     # Expected rest count for each player (total rounds - game_per_player games)
     target_rest_count = rounds - game_per_player
-    
+    print(f'Target rest count for each player: {target_rest_count}')
     # Initialize player consecutive activity tracking
     player_consecutive_active = {p: 0 for p in players}
     
@@ -90,7 +96,7 @@ def generate_rotation(players, court_count, game_per_player, elo_threshold, play
     print("Attempting to generate rest schedule using backtracking...")
     backtrack_rest_schedule_variable(
         players, rest_schedule, rest_counts, 0, rounds,
-        rest_per_round, female_set, female_players, target_rest_count,
+        rest_per_round, female_set, target_rest_count,
         player_consecutive_active  # Pass the consecutive rounds tracker
     )
     print("Rest schedule:", rest_schedule)
@@ -101,7 +107,6 @@ def generate_rotation(players, court_count, game_per_player, elo_threshold, play
     for attempt in range(max_attempts):
         success = True
         temp_lineups = []
-                
         for r in range(rounds):
             active = [p for p in players if p not in rest_schedule[r]]
             active_females = [p for p in active if p in female_set]
@@ -119,6 +124,7 @@ def generate_rotation(players, court_count, game_per_player, elo_threshold, play
                 # Clear any partnerships recorded during this failed attempt
                 global_partnerships = defaultdict(int)  # Reset to empty
                 global_opponents = defaultdict(int)
+                global_expected_wins = defaultdict(int)
                 break
                 
             temp_lineups.append(courts)
@@ -139,7 +145,7 @@ def generate_rotation(players, court_count, game_per_player, elo_threshold, play
 
 
 def backtrack_rest_schedule_variable(players, rest_schedule, rest_counts, current_round, total_rounds,
-                                  rest_per_round, female_set, female_players, target_rest_count,
+                                  rest_per_round, female_set, target_rest_count,
                                   player_consecutive_active):
     """
     Optimized recursive backtracking for rest schedule generation with consecutive rounds limit
@@ -154,13 +160,13 @@ def backtrack_rest_schedule_variable(players, rest_schedule, rest_counts, curren
     
     # 1. IDENTIFY PLAYERS WHO MUST REST
     
-    # Must rest due to consecutive active rounds (limit is 5)
+    # Must rest due to consecutive active rounds (limit is max_consecutive_rounds)
     must_rest_consecutive = [p for p in players 
                            if player_consecutive_active.get(p, 0) >= 4]
     
     # Must rest due to remaining rest requirements
     rest_needed = {p: target_rest_count - rest_counts[p] for p in players}
-    must_rest_count = [p for p, needed in rest_needed.items() 
+    must_rest_count = [p for p, needed in rest_needed.items()
                       if needed > 0 and needed > rounds_left - 1]
     
     # Combined must-rest list
@@ -183,8 +189,16 @@ def backtrack_rest_schedule_variable(players, rest_schedule, rest_counts, curren
                         if rest_counts[p] < target_rest_count and p not in must_rest]
     
     # Split by gender
-    female_candidates = [p for p in valid_candidates if p in female_set]
-    male_candidates = [p for p in valid_candidates if p not in female_set]
+    female_candidates = sorted(
+        [p for p in valid_candidates if p in female_set],
+        key=lambda p: (player_consecutive_active.get(p, 0), rest_needed[p]),
+        reverse=True
+    )
+    male_candidates = sorted(
+        [p for p in valid_candidates if p not in female_set],
+        key=lambda p: (player_consecutive_active.get(p, 0), rest_needed[p]),
+        reverse=True
+    )
     must_rest_females = [p for p in must_rest if p in female_set]
     
     # 4. GENERATE REST COMBINATIONS CONSIDERING GENDER BALANCE
@@ -194,58 +208,40 @@ def backtrack_rest_schedule_variable(players, rest_schedule, rest_counts, curren
     
     # Need to maintain even number of active females for court balance
     current_female_count = len(must_rest_females)
-    active_females = len(female_players) - current_female_count
+    active_females = len(female_set) - current_female_count
     needed_females_to_rest = active_females % 2  # 1 if odd active, 0 if even
-    
-    # Priority sorting - players with more consecutive rounds and more rest needed
-    female_priority = sorted(
-        female_candidates, 
-        key=lambda p: (player_consecutive_active.get(p, 0), rest_needed[p]), 
-        reverse=True
-    )
-    male_priority = sorted(
-        male_candidates,
-        key=lambda p: (player_consecutive_active.get(p, 0), rest_needed[p]),
-        reverse=True
-    )
-    
-    # Limit search space
-    max_female_samples = min(len(female_priority), 8)
-    max_male_samples = min(len(male_priority), 8)
-    female_priority = female_priority[:max_female_samples]
-    male_priority = male_priority[:max_male_samples]
-    
+
+
     # Generate appropriate gender-balanced combinations
     if needed_females_to_rest == 1:  # Need odd females resting
-        for offset in range(min(3, (len(female_priority) + 1) // 2)):
+        for offset in range((len(female_candidates) + 1) // 2):
             females_to_add = 1 + (offset * 2)  # 1, 3, 5...
             if females_to_add > rest_slots_remaining:
                 continue
-                
             males_to_add = rest_slots_remaining - females_to_add
-            if males_to_add > len(male_priority):
+            if males_to_add > len(male_candidates):
                 continue
                 
             # Try combinations with this gender distribution
-            for female_combo in itertools.combinations(female_priority, min(females_to_add, len(female_priority))):
-                for male_combo in itertools.combinations(male_priority, min(males_to_add, len(male_priority))):
+            for female_combo in itertools.combinations(female_candidates, min(females_to_add, len(female_candidates))):
+                for male_combo in itertools.combinations(male_candidates, min(males_to_add, len(male_candidates))):
                     # Check if we already have enough combinations 
                     if len(combinations_to_try) >= 10:
                         break
                     combinations_to_try.append(list(must_rest) + list(female_combo) + list(male_combo))
     else:  # Need even females resting
-        for offset in range(min(3, len(female_priority) // 2 + 1)):
+        for offset in range(len(female_candidates) // 2 + 1):
             females_to_add = offset * 2  # 0, 2, 4...
             if females_to_add > rest_slots_remaining:
                 continue
                 
             males_to_add = rest_slots_remaining - females_to_add
-            if males_to_add > len(male_priority):
+            if males_to_add > len(male_candidates):
                 continue
                 
             # Try combinations with this gender distribution
-            for female_combo in itertools.combinations(female_priority, min(females_to_add, len(female_priority))):
-                for male_combo in itertools.combinations(male_priority, min(males_to_add, len(male_priority))):
+            for female_combo in itertools.combinations(female_candidates, min(females_to_add, len(female_candidates))):
+                for male_combo in itertools.combinations(male_candidates, min(males_to_add, len(male_candidates))):
                     # Check if we already have enough combinations 
                     if len(combinations_to_try) >= 10:
                         break
@@ -276,7 +272,7 @@ def backtrack_rest_schedule_variable(players, rest_schedule, rest_counts, curren
         if backtrack_rest_schedule_variable(
                 players, rest_schedule, rest_counts, 
                 current_round + 1, total_rounds, 
-                rest_per_round, female_set, female_players, 
+                rest_per_round, female_set, 
                 target_rest_count, player_consecutive_active_copy
             ):
             return True
@@ -310,7 +306,6 @@ def generate_courts_for_round(females, males, court_count, female_set, player_el
     """
     courts = []
     players_used = set()
-    
     # Make copies of our lists to work with
     females = females.copy()
     males = males.copy()
@@ -342,6 +337,37 @@ def check_opponents_valid(team1, team2, max_opponent_frequency):
     return True
 
 
+def check_expected_win_balance(team1, team2, player_elos, remaining_round, min_expected_wins=1):
+    """
+    Check if creating this match would contribute to a balanced expected win distribution.
+    
+    Args:
+        team1: List of two players in team 1
+        team2: List of two players in team 2
+        player_elos: Dictionary of player ELO ratings
+        min_expected_wins: Minimum expected win matches each player should have
+        
+    Returns:
+        Boolean indicating if this match helps balance expected wins
+    """
+    global global_expected_wins
+    
+    # Calculate team average ELOs
+    team1_avg_elo = (player_elos.get(team1[0], 1500) + player_elos.get(team1[1], 1500)) / 2
+    team2_avg_elo = (player_elos.get(team2[0], 1500) + player_elos.get(team2[1], 1500)) / 2
+    
+    # Determine which team has the advantage
+    if team1_avg_elo > team2_avg_elo:
+        disadvantaged_team = team2
+    else:
+        disadvantaged_team = team1
+    
+    # for p in disadvantaged_team:
+    #     if global_expected_wins.get(p, 0) + remaining_round < min_expected_wins:
+    #         return False
+    return True
+
+
 def backtrack_courts(courts, females, males, court_count, female_set, used_players, 
                     player_elos, elo_threshold, max_opponent_frequency, team_elo_diff):
     """
@@ -362,12 +388,14 @@ def backtrack_courts(courts, females, males, court_count, female_set, used_playe
     Returns:
         True if successful, False otherwise
     """
-    global global_partnerships, global_opponents
+    global global_partnerships, global_opponents, global_expected_wins
     
     # Base case: we've filled all courts
     if len(courts) == court_count:
         return True
     
+    rounds_left = court_count - len(courts) - 1
+
     # Try different gender distributions for this court
     court_options = []
     
@@ -393,6 +421,7 @@ def backtrack_courts(courts, females, males, court_count, female_set, used_playe
         males_copy = males.copy()
         partnerships_snapshot = {k: v for k, v in global_partnerships.items()}
         opponents_snapshot = {k: v for k, v in global_opponents.items()}
+        expected_wins_snapshot = {k: v for k, v in global_expected_wins.items()}
         used_copy = used_players.copy()
         
         court = []
@@ -454,6 +483,8 @@ def backtrack_courts(courts, females, males, court_count, female_set, used_playe
                         continue
                     if not check_teammate_elo_compatibility(f2, m2, player_elos, team_elo_diff):
                         continue
+                    if not check_expected_win_balance(team1, [f2, m2], player_elos, rounds_left):
+                        continue
                     team2 = [f2, m2]
                     global_partnerships[pair] = global_partnerships.get(pair, 0) + 1
                     for p1 in team1:
@@ -472,6 +503,19 @@ def backtrack_courts(courts, females, males, court_count, female_set, used_playe
                 court = team1 + team2
                 females = [f for f in females_copy if f not in used_copy]
                 males = [m for m in males_copy if m not in used_copy]
+
+                # Calculate team ELOs to track expected wins
+                team1_avg_elo = (player_elos.get(team1[0], 1500) + player_elos.get(team1[1], 1500)) / 2
+                team2_avg_elo = (player_elos.get(team2[0], 1500) + player_elos.get(team2[1], 1500)) / 2
+                
+                # Update expected win counters based on ELO advantage
+                if team1_avg_elo > team2_avg_elo:
+                    for p in team1:
+                        global_expected_wins[p] = global_expected_wins.get(p, 0) + 1
+                else:
+                    for p in team2:
+                        global_expected_wins[p] = global_expected_wins.get(p, 0) + 1
+                
                 success = True
             
         elif option == 'all_female':
@@ -517,6 +561,8 @@ def backtrack_courts(courts, females, males, court_count, female_set, used_playe
                     continue
                 if not check_teammate_elo_compatibility(f1, f2, player_elos, team_elo_diff):
                     continue
+                if not check_expected_win_balance(team1, [f1, f2], player_elos, rounds_left):
+                    continue
                 team2 = [f1, f2]
                 global_partnerships[pair] = global_partnerships.get(pair, 0) + 1
                 for p1 in team1:
@@ -531,8 +577,21 @@ def backtrack_courts(courts, females, males, court_count, female_set, used_playe
             if team1 and team2:
                 court = team1 + team2
                 females = [f for f in females_copy if f not in used_copy]
-                success = True
                 
+                # Calculate team ELOs to track expected wins
+                team1_avg_elo = (player_elos.get(team1[0], 1500) + player_elos.get(team1[1], 1500)) / 2
+                team2_avg_elo = (player_elos.get(team2[0], 1500) + player_elos.get(team2[1], 1500)) / 2
+                
+                # Update expected win counters based on ELO advantage
+                if team1_avg_elo > team2_avg_elo:
+                    for p in team1:
+                        global_expected_wins[p] = global_expected_wins.get(p, 0) + 1
+                else:
+                    for p in team2:
+                        global_expected_wins[p] = global_expected_wins.get(p, 0) + 1
+                
+                success = True
+    
         elif option == 'all_male':
             # Try to form 2 teams with 2 males each
             team1, team2 = [], []
@@ -546,6 +605,8 @@ def backtrack_courts(courts, females, males, court_count, female_set, used_playe
                     
                 # Check global partnerships
                 pair = tuple(sorted([m1, m2]))
+                if pair[0].endswith("(F)") and pair[1].endswith("(F)"):
+                    continue
                 if pair in global_partnerships:
                     continue
                 if not check_teammate_elo_compatibility(m1, m2, player_elos, team_elo_diff):
@@ -567,6 +628,8 @@ def backtrack_courts(courts, females, males, court_count, female_set, used_playe
             for m1, m2 in male_pairs:
                 # Check global partnerships
                 pair = tuple(sorted([m1, m2]))
+                if pair[0].endswith("(F)") and pair[1].endswith("(F)"):
+                    continue
                 if pair in global_partnerships:
                     continue
                 # Skip if ELO difference is too large
@@ -575,6 +638,8 @@ def backtrack_courts(courts, females, males, court_count, female_set, used_playe
                 if not check_opponents_valid(team1, [m1, m2], max_opponent_frequency):
                     continue
                 if not check_teammate_elo_compatibility(m1, m2, player_elos, team_elo_diff):
+                    continue
+                if not check_expected_win_balance(team1, [m1, m2], player_elos, rounds_left):
                     continue
                 team2 = [m1, m2]
                 global_partnerships[pair] = global_partnerships.get(pair, 0) + 1
@@ -588,6 +653,14 @@ def backtrack_courts(courts, females, males, court_count, female_set, used_playe
                 
             # If we found both teams, add them to the court
             if team1 and team2:
+                team1_avg_elo = (player_elos.get(team1[0], 1500) + player_elos.get(team1[1], 1500)) / 2
+                team2_avg_elo = (player_elos.get(team2[0], 1500) + player_elos.get(team2[1], 1500)) / 2
+                if team1_avg_elo > team2_avg_elo:
+                    for p in team1:
+                        global_expected_wins[p] = global_expected_wins.get(p, 0) + 1
+                else:
+                    for p in team2:
+                        global_expected_wins[p] = global_expected_wins.get(p, 0) + 1
                 court = team1 + team2
                 males = [m for m in males_copy if m not in used_copy]
                 success = True
@@ -596,16 +669,16 @@ def backtrack_courts(courts, females, males, court_count, female_set, used_playe
         if success and court:
             courts.append(court)
             used_players = used_copy
-            
             # Continue with the next court
             if backtrack_courts(courts, females, males, court_count, female_set, used_players, player_elos, elo_threshold, max_opponent_frequency, team_elo_diff):
                 return True
-                
+            
             # If we can't complete the schedule with this court, backtrack
             courts.pop()
-            # Restore partnerships snapshot on backtracking
+            # Restore snapshots on backtracking
             global_partnerships = partnerships_snapshot
             global_opponents = opponents_snapshot
+            global_expected_wins = expected_wins_snapshot
             
     # If we tried all options and none worked, backtrack
     return False

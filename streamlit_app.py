@@ -2,14 +2,14 @@ import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 import os
-from elo_system import calculate_elo_ratings
+from elo_system import calculate_elo_ratings, load_existing_player_data, process_match, create_stats_dataframe
 import re
 from datetime import datetime
 import matplotlib as mpl
 import logging
 import plotly.graph_objects as go
 from collections import defaultdict
-from data_io import load_player_data, load_session_stats_files, get_head_to_head_history, DATA_DIR, get_player_match_history, get_player_opponents, save_player_data, save_match_history, save_session_stats
+from data_io import load_player_data, load_session_stats_files, get_head_to_head_history, get_player_match_history, get_player_opponents, save_player_data, save_match_history, save_session_stats
 
 HIDDEN_PLAYERS = ['疏朗(F)']
 
@@ -739,13 +739,9 @@ def main():
                     st.error(message)
 
 
-
-def process_single_match(team_a, team_b, score, data_dir=DATA_DIR):
+def process_single_match(team_a, team_b, score):
     """Process a single match entered manually."""
     try:
-        from elo_system import (load_existing_player_data, process_match, 
-                                create_stats_dataframe)
-        
         # Load existing player data using the function from elo_system
         player_elos, player_stats = load_existing_player_data()
         
