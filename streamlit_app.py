@@ -9,7 +9,7 @@ import matplotlib as mpl
 import logging
 import plotly.graph_objects as go
 from collections import defaultdict
-from data_io import load_player_data, load_session_stats_files, get_head_to_head_history, get_player_match_history, get_player_opponents, save_player_data, save_match_history, save_session_stats
+from data_io import load_player_data, load_session_stats_files, get_head_to_head_history, get_player_match_history, get_player_opponents, save_player_data, save_match_history, save_session_stats, get_partnership_statistics
 
 HIDDEN_PLAYERS = ['疏朗(F)']
 
@@ -88,8 +88,9 @@ def configure_matplotlib_fonts():
 def main():
     global HIDDEN_PLAYERS
     st.title("🏸 Badminton ELO Rating System")
-    # Add tab for manual match entry
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Player Rankings", "Session Results", "Head-to-Head", "Add Single Match", "Process New Results"])
+    # Add a new tab for Best Partnerships
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["Player Rankings", "Session Results", "Head-to-Head", 
+                                                "Best Partnerships", "Add Single Match", "Process New Results"])
 
     with tab1:
         # Load player data
@@ -439,7 +440,7 @@ def main():
                 except Exception as e:
                     st.error(f"Error loading session data: {e}")
     
-    with tab5:
+    with tab6:
         st.subheader("Process New Match Results")
         uploaded_file = st.file_uploader(
             "Upload Excel file with match results", 
@@ -518,10 +519,8 @@ def main():
     
     with tab3:
         st.subheader("🤺 Head-to-Head Comparison")
-        
         # Load player data for the dropdowns
         player_df = load_player_data()
-        
         if player_df is not None:
             # Create two columns for selecting players
             col1, col2 = st.columns(2)
@@ -623,8 +622,48 @@ def main():
         else:
             st.error("Could not load player data. Please check if player data files exist.")
 
-    # Add the new tab for manual match entry
     with tab4:
+        st.subheader("🤝 Best Partnerships")
+        st.write("Discover which player combinations have the highest win rates.")
+        
+        # Get partnership statistics
+        partnership_df = get_partnership_statistics()
+        
+        if partnership_df is not None:
+            # Filter options
+            min_games = st.slider("Minimum Games Played", 3, 20, 3)
+            
+            # Filter partnerships
+            filtered_df = partnership_df[partnership_df["Games Played"] >= min_games].copy()
+            
+            if not filtered_df.empty:
+                # Sort by win rate (descending) and then by games played (descending)
+                filtered_df = filtered_df.sort_values(
+                    by=["Win Rate Value", "Games Played"], 
+                    ascending=[False, False]
+                )
+                
+                # Remove the sorting column before display
+                display_df = filtered_df.drop(columns=["Win Rate Value"]).head(20)
+                
+                # Display the table
+                st.dataframe(
+                    display_df,
+                    column_config={
+                        "Partnership": st.column_config.TextColumn("Partnership"),
+                        "Games Played": st.column_config.NumberColumn("Games", help="Total games played by this partnership"),
+                        "Wins": st.column_config.NumberColumn("Wins", help="Total wins by this partnership"),
+                        "Win Rate": st.column_config.TextColumn("Win Rate", help="Percentage of games won")
+                    },
+                    hide_index=True
+                )    
+            else:
+                st.info(f"No partnerships found with at least {min_games} games played.")
+        else:
+            st.info("No partnership data available. Please play some matches first!")
+
+    # Add the new tab for manual match entry
+    with tab5:
         st.subheader("✏️ Add Single Match Result")
         
         # Load player data for selection

@@ -35,25 +35,66 @@ def generate_schedule(players, court_count, start_hour, elo_threshold, game_per_
     check_elo_balance(rounds_lineups, player_elos, elo_threshold)
     check_opponent_frequency(rounds_lineups, max_opponent_frequency=game_per_player // 2)
     check_consecutive_rounds(players, rounds_lineups, 4)
-    output_file = f"badminton_schedule_{elo_threshold}_{team_elo_diff}.xlsx"
+    
+    # Calculate average ELO difference
+    avg_elo_diff = calculate_average_elo_difference(rounds_lineups, player_elos)
+    print(f"Average ELO difference between teams: {avg_elo_diff:.2f}")
+    
+    # Update output file name to include average ELO difference
+    output_file = f"badminton_schedule_{elo_threshold}_{team_elo_diff}_{avg_elo_diff:.0f}.xlsx"
+    
     # Save the schedule to Excel
     save_schedule_to_excel(rest_schedule, rounds_lineups, output_file, start_hour=start_hour)
     return rounds_lineups 
 
 
+def calculate_average_elo_difference(rounds_lineups, player_elos):
+    """
+    Calculate the average ELO difference between teams across all matches
+    
+    Args:
+        rounds_lineups: List of round lineups, each containing court assignments
+        player_elos: Dictionary of player ELO ratings
+        
+    Returns:
+        float: Average ELO difference between teams
+    """
+    total_difference = 0
+    match_count = 0
+    
+    for round_courts in rounds_lineups:
+        for court in round_courts:
+            # Each court has 4 players: [team1_player1, team1_player2, team2_player1, team2_player2]
+            team1 = court[0:2]
+            team2 = court[2:4]
+            
+            # Calculate team average ELOs
+            team1_avg_elo = (player_elos.get(team1[0], 1500) + player_elos.get(team1[1], 1500)) / 2
+            team2_avg_elo = (player_elos.get(team2[0], 1500) + player_elos.get(team2[1], 1500)) / 2
+            
+            # Calculate the absolute difference
+            difference = abs(team1_avg_elo - team2_avg_elo)
+            
+            total_difference += difference
+            match_count += 1
+    
+    # Calculate average
+    if match_count > 0:
+        return total_difference / match_count
+    else:
+        return 0
+
+
 if __name__ == "__main__":
     players = [ "敏敏子(F)", "Acaprice", 'liyu', "Max", "张晴川",  "方文", "米兰的小铁匠",  "gdc", 
                "Jensen", "一顿饭", "曹大", "Louis", "杨昆", "Jieling(F)", "Damien", "Plastic", 
-               "cbt", "Yummy(F)", "ai(F)", "青天烟云", "郑旭明", "Jing(F)", "墨欸莓(F)", "四石"]
+               "cbt", "Yummy(F)", "ai(F)", "随便起个名(F)", "郑旭明", "Jing(F)", "墨欸莓(F)", "四石"]
     # sort players by ELO rating
-    # players.sort(key=lambda x: load_existing_player_data()[0].get(x, 0), reverse=True)
-    # print(f"Sorted players by ELO: {players}")
     for i in range(100):
         try:
             import random 
             random.shuffle(players)
             rounds = generate_schedule(players, court_count=4, start_hour=14, elo_threshold=70, game_per_player=6, team_elo_diff=300)
-            break
         except ValueError as e:
             print(f"Error generating schedule: {e}")
     

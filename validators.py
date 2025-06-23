@@ -482,7 +482,7 @@ if __name__ == "__main__":
     # Example usage
     # Generate a schedule (uncomment to generate a new schedule)
     # players = ["Alice(F)", "Bob(M)", "Charlie(M)", "Diana(F)", "Eve(F)", "Frank(M)"]
-    # rounds_lineups = scheduler.generate_schedule(players, court_count=2, start_hour=17, elo_threshold=70, game_per_player=3, team_elo_diff=50)
-    
+    # rounds_lineups = scheduler.generate_schedule(players, court_count=2, start_hour=17, elo_threshold=70, game_per_player=3, team_elo_diff=50)    
     # Check an existing schedule
-    check_existing_schedule('badminton_schedule_70_300.xlsx')
+    check_existing_schedule('badminton_schedule_70_300_35.xlsx')
+

@@ -3,6 +3,7 @@ import pandas as pd
 import logging
 from glob import glob
 from datetime import datetime
+from collections import defaultdict
 
 # Create a platform-independent data directory path
 def get_data_dir():
@@ -326,7 +327,6 @@ def get_player_match_history(player):
     return player_matches.sort_values(by=["Session", "Match_Index"], ascending=[False, False])
 
 
-
 def get_player_opponents(player_name):
     """Get all opponents who have played against the given player
     
@@ -414,3 +414,54 @@ def get_head_to_head_history(player1, player2):
             "matches": sorted_matches
     }    
     return summary
+
+def get_partnership_statistics():
+    """Analyze match history to find partnership statistics
+    
+    Returns:
+        DataFrame: Partnership statistics including games played and win rate
+    """
+    # Load all match history
+    match_df = load_all_match_history()
+    
+    # Dictionary to track partnership stats
+    partnerships = defaultdict(lambda: {"games": 0, "wins": 0})
+    
+          
+    # For each match, extract partnerships and record outcomes
+    for _, row in match_df.iterrows():
+        team_a_pair = tuple(sorted([row["Player A1"], row["Player A2"]]))    
+        team_b_pair = tuple(sorted([row["Player B1"], row["Player B2"]]))
+                
+        # Update games count for both partnerships
+        partnerships[team_a_pair]["games"] += 1
+        partnerships[team_b_pair]["games"] += 1
+                
+        # Update wins based on the winner
+        if row["Winner"] == "Team A":
+            partnerships[team_a_pair]["wins"] += 1
+        elif row["Winner"] == "Team B":
+            partnerships[team_b_pair]["wins"] += 1
+        
+    # Convert the dictionary to a DataFrame for easier display
+    if not partnerships:
+        return None
+        
+    partnership_data = []
+    for pair, stats in partnerships.items():
+        # Calculate win rate
+        win_rate = 0 if stats["games"] == 0 else (stats["wins"] / stats["games"]) * 100
+        win_rate_str = f"{win_rate:.1f}%"
+        
+        # Format the partnership name
+        partnership_name = f"{pair[0]} / {pair[1]}"
+        
+        partnership_data.append({
+            "Partnership": partnership_name,
+            "Games Played": stats["games"],
+            "Wins": stats["wins"],
+            "Win Rate": win_rate_str,
+            "Win Rate Value": win_rate  # Hidden column for sorting
+        })
+    
+    return pd.DataFrame(partnership_data)
