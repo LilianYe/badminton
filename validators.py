@@ -367,9 +367,10 @@ def check_existing_schedule(excel_path):
     """
     # Load schedule from Excel
     rounds_lineups = extract_rounds_from_excel(excel_path)
+    file_params = excel_path.split('.')[0].split('_')
     player_elos, _ = load_existing_player_data()
-    elo_threshold = 70  # Example threshold, adjust as needed
-    max_opponent_frequency = 3  # Example limit, adjust as needed
+    elo_threshold = int(file_params[3])
+    max_opponent_frequency = 2
     # Get all players
     all_players = set()
     for round_courts in rounds_lineups:
@@ -378,7 +379,7 @@ def check_existing_schedule(excel_path):
                 all_players.add(player)
     all_players = list(all_players)
     # Run validation checks
-    check_play_times(all_players, rounds_lineups, game_per_player=6)
+    check_play_times(all_players, rounds_lineups, game_per_player=4)
     check_partnerships(rounds_lineups)
     check_gender_balance(rounds_lineups)
     check_elo_balance(rounds_lineups, player_elos, elo_threshold)
@@ -424,13 +425,13 @@ def check_expected_win_balance(rounds_lineups, player_elos):
             # For each player in team 1, check if their team has an advantage
             for player in team1:
                 player_matches[player] += 1
-                if team1_avg_elo > team2_avg_elo:
+                if team1_avg_elo >= team2_avg_elo:
                     player_expected_wins[player] += 1
             
             # For each player in team 2, check if their team has an advantage
             for player in team2:
                 player_matches[player] += 1
-                if team2_avg_elo > team1_avg_elo:
+                if team2_avg_elo >= team1_avg_elo:
                     player_expected_wins[player] += 1
     
     # Calculate expected win percentage for each player
@@ -484,5 +485,4 @@ if __name__ == "__main__":
     # players = ["Alice(F)", "Bob(M)", "Charlie(M)", "Diana(F)", "Eve(F)", "Frank(M)"]
     # rounds_lineups = scheduler.generate_schedule(players, court_count=2, start_hour=17, elo_threshold=70, game_per_player=3, team_elo_diff=50)    
     # Check an existing schedule
-    check_existing_schedule('badminton_schedule_70_300_35.xlsx')
-
+    check_existing_schedule('badminton_schedule_5_50_200_2_23ff.xlsx')

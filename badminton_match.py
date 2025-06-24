@@ -5,7 +5,7 @@ from validators import (check_play_times, check_partnerships, check_consecutive_
                         check_opponent_frequency, save_schedule_to_excel)
 
 
-def generate_schedule(players, court_count, start_hour, elo_threshold, game_per_player, team_elo_diff):
+def generate_schedule(players, court_count, start_hour, elo_threshold, game_per_player, team_elo_diff, max_opponent_frequency, min_expected_wins):
     """
     Generate a balanced badminton schedule
     
@@ -25,15 +25,15 @@ def generate_schedule(players, court_count, start_hour, elo_threshold, game_per_
     
     # Generate rotation with gender-balanced courts
     rest_schedule, rounds_lineups = generate_rotation(
-        players, court_count, game_per_player, elo_threshold=elo_threshold, 
-        player_elos=player_elos, team_elo_diff=team_elo_diff)
+        players, court_count, game_per_player, elo_threshold, 
+        player_elos, team_elo_diff, max_opponent_frequency, min_expected_wins)
     
     # Basic validity checks
     check_play_times(players, rounds_lineups, game_per_player=game_per_player)
     check_partnerships(rounds_lineups)
     check_gender_balance(rounds_lineups)
     check_elo_balance(rounds_lineups, player_elos, elo_threshold)
-    check_opponent_frequency(rounds_lineups, max_opponent_frequency=game_per_player // 2)
+    check_opponent_frequency(rounds_lineups, max_opponent_frequency)
     check_consecutive_rounds(players, rounds_lineups, 4)
     
     # Calculate average ELO difference
@@ -41,7 +41,7 @@ def generate_schedule(players, court_count, start_hour, elo_threshold, game_per_
     print(f"Average ELO difference between teams: {avg_elo_diff:.2f}")
     
     # Update output file name to include average ELO difference
-    output_file = f"badminton_schedule_{elo_threshold}_{team_elo_diff}_{avg_elo_diff:.0f}.xlsx"
+    output_file = f"badminton_schedule_{court_count}_{elo_threshold}_{team_elo_diff}_{max_opponent_frequency}_{avg_elo_diff:.0f}.xlsx"
     
     # Save the schedule to Excel
     save_schedule_to_excel(rest_schedule, rounds_lineups, output_file, start_hour=start_hour)
@@ -86,23 +86,22 @@ def calculate_average_elo_difference(rounds_lineups, player_elos):
 
 
 if __name__ == "__main__":
-    players = [ "敏敏子(F)", "Acaprice", 'liyu', "Max", "张晴川",  "方文", "米兰的小铁匠",  "gdc", 
-               "Jensen", "一顿饭", "曹大", "Louis", "杨昆", "Jieling(F)", "Damien", "Plastic", 
-               "cbt", "Yummy(F)", "ai(F)", "随便起个名(F)", "郑旭明", "Jing(F)", "墨欸莓(F)", "四石"]
-    # sort players by ELO rating
-    for i in range(100):
+    players = [ "敏敏子(F)", 'liyu', "米兰的小铁匠", "simonBW", "熊猫",  "安元植", "颜若儒(F)", "毛艺钧",
+               "李娜(F)", "destiny(F)", "伟帆", "浩南", "王威", "Chao", "一顿饭", "风", 
+               "吳祎麟", "方便面下半包(F)", "Guorong Ma", "Jasper", "杜亚朔", "黄腾", "蒋未雨", 'wk', "蜻蜓三点水", "星际宇航员"]
+    for i in range(50):
         try:
             import random 
             random.shuffle(players)
-            rounds = generate_schedule(players, court_count=4, start_hour=14, elo_threshold=70, game_per_player=6, team_elo_diff=300)
+            rounds = generate_schedule(players, court_count=5, start_hour=17, elo_threshold=50, game_per_player=4, team_elo_diff=200, max_opponent_frequency=2, min_expected_wins=1)
         except ValueError as e:
             print(f"Error generating schedule: {e}")
-    
+
     # all_players = [
     #     "cbt", "Yunjie", "曹大", "张晴川", "ai(F)", "Jing(F)", "Damien", "Plastic", "Jieling(F)", 
     #     "dianhsu", "Max", "gdc", "MFive(F)", "🐟🍃", "卷卷(F)", "yy(F)", "乌拉乌拉", 
     #     "米兰的小铁匠", "敏敏子(F)", "尼古丁", "一顿饭", "疏朗(F)", "z", "杨昆",
     #  "星际宇航员", "李娜(F)", "颜若儒(F)", "simonBW", "安元植", "熊猫",  "liyu", "Chao",
     #  "destiny(F)", "李东勇",  'JianjunLv', "Yummy(F)", "王威", "Louis", "毛艺钧", 
-    # "方文", "shuya(F)", "Acaprice", "廖俊杰", "ian", "大米",  "Jensen", "OwenWei"
+    # "方文", "shuya(F)", "Acaprice", "廖俊杰", "ian", "大米",  "Jensen", "OwenWei", "随便起个名(F)", "郑旭明", "墨欸莓(F)", "四石"
     # ]
