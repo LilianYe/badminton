@@ -2,8 +2,12 @@ import os
 import pandas as pd
 import logging
 from glob import glob
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from collections import defaultdict
+import json  
+import numpy as np
+import os
+
 
 # Create a platform-independent data directory path
 def get_data_dir():
@@ -465,3 +469,173 @@ def get_partnership_statistics():
         })
     
     return pd.DataFrame(partnership_data)
+
+
+def json_matches_to_excel_schedule(input_json_path, output_excel_path, session_id=None, start_time_str=None):
+    """
+    Process a JSON file with match data (one JSON object per line) and create an Excel schedule.
+    Matches are organized from left to right and top to bottom by CompleteTime.
+    
+    Args:
+        input_json_path (str): Path to the JSON file containing match records
+        output_excel_path (str): Path where the output Excel file will be saved
+        session_id (str, optional): If provided, only matches with this SessionId will be included
+        start_time_str (str, optional): Start time for the first round in format "HH:MM"
+    
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        # Set default start time if not provided
+        start_time = datetime.strptime("15:00", "%H:%M")
+        if start_time_str:
+            try:
+                start_time = datetime.strptime(start_time_str, "%H:%M")
+            except ValueError:
+                logging.warning(f"Invalid start time format: {start_time_str}, using default 15:00")
+        
+        # Read JSON data
+        matches = []
+        with open(input_json_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                    
+                try:
+                    match = json.loads(line)
+                    
+                    # Filter by session_id if provided
+                    if session_id is not None and match.get('SessionId') != session_id:
+                        continue
+                        
+                    # Parse CompleteTime for sorting
+                    if 'CompleteTime' in match:
+                        try:
+                            match['CompleteTime_dt'] = datetime.strptime(
+                                match['CompleteTime'].split('.')[0], 
+                                "%Y-%m-%dT%H:%M:%S"
+                            )
+                        except ValueError:
+                            # Try alternative date format
+                            match['CompleteTime_dt'] = datetime.strptime(
+                                match['CompleteTime'], 
+                                "%Y-%m-%dT%H:%M:%S.%fZ"
+                            )
+                    matches.append(match)
+                except Exception as e:
+                    logging.error(f"Error parsing JSON line: {e}")
+                    continue
+        
+        if not matches:
+            logging.error(f"No valid match data found in the file{' for SessionId ' + session_id if session_id else ''}")
+            return False
+        
+        # Sort matches by CompleteTime
+        matches.sort(key=lambda x: x.get('CompleteTime_dt', datetime.min))
+        
+        # Group matches by Round
+        round_groups = {}
+        for match in matches:
+            round_num = match.get('Round', 0)
+            if round_num not in round_groups:
+                round_groups[round_num] = []
+            round_groups[round_num].append(match)
+        
+        # Sort rounds
+        sorted_rounds = sorted(round_groups.keys())
+        
+        # Fixed layout with 4 columns for courts
+        num_court_columns = 4
+        
+        # Create a matrix to hold our data
+        # First column is for round info, then 4 court columns
+        total_cols = num_court_columns + 1
+        
+        # Calculate number of rows needed
+        max_matches_per_round = max([len(matches) for matches in round_groups.values()])
+        rows_per_round = max(((max_matches_per_round + num_court_columns - 1) // num_court_columns) * 3, 3)
+        total_rows = len(sorted_rounds) * rows_per_round
+        
+        # Create empty DataFrame
+        data = np.empty((total_rows, total_cols), dtype=object)
+        
+        # Fill the matrix with match data
+        current_row = 0
+        for round_num in sorted_rounds:
+            round_matches = round_groups[round_num]
+            
+            # Calculate timing for this round
+            round_start = start_time + timedelta(minutes=(round_num-1)*12)
+            round_end = round_start + timedelta(minutes=12)
+            
+            # Format round timing
+            round_time_str = f"Round {int(round_num)} ({round_start.strftime('%H:%M')} - {round_end.strftime('%H:%M')})"
+            
+            # Add round info to first column
+            data[current_row, 0] = round_time_str
+            
+            # Add matches for this round
+            for i, match in enumerate(round_matches):
+                col = (i % num_court_columns) + 1  # +1 because col 0 is for round info
+                
+                # Calculate row offset within this round block
+                row_offset = (i // num_court_columns) * 3
+                
+                # Extract player data
+                player_a1 = match.get('PlayerA1', {}).get('name', '')
+                player_a2 = match.get('PlayerA2', {}).get('name', '')
+                player_b1 = match.get('PlayerB1', {}).get('name', '')
+                player_b2 = match.get('PlayerB2', {}).get('name', '')
+                
+                # Add gender markers
+                if match.get('PlayerA1', {}).get('gender') == 'female':
+                    player_a1 += "(F)"
+                if match.get('PlayerA2', {}).get('gender') == 'female':
+                    player_a2 += "(F)"
+                if match.get('PlayerB1', {}).get('gender') == 'female':
+                    player_b1 += "(F)"
+                if match.get('PlayerB2', {}).get('gender') == 'female':
+                    player_b2 += "(F)"
+                
+                # Format match text and score
+                match_text = f"{player_a1}/{player_a2} vs {player_b1}/{player_b2}"
+                
+                # Format score
+                score_a = match.get('ScoreA')
+                score_b = match.get('ScoreB')
+                score_text = ""
+                if score_a is not None and score_b is not None:
+                    score_text = f"{score_a}:{score_b}"
+                
+                # Fill the cells
+                data[current_row + row_offset, col] = match_text
+                data[current_row + row_offset + 2, col] = score_text
+                # Row offset + 1 is left empty for spacing
+            
+            # Move to next round (leave appropriate spacing)
+            current_row += rows_per_round
+        
+        # Convert to DataFrame
+        df = pd.DataFrame(data)
+        
+        # Add header row
+        header = [""] + [f"Court {i}" for i in range(1, num_court_columns + 1)]
+        header_df = pd.DataFrame([header])
+        
+        # Combine header with data
+        final_df = pd.concat([header_df, df], ignore_index=True)
+        
+        # Write to Excel
+        final_df.to_excel(output_excel_path, index=False, header=False)
+        
+        print(f"Excel file created successfully at {output_excel_path}")
+        print(f"Included {len(matches)} matches{' for SessionId ' + session_id if session_id else ''} across {len(sorted_rounds)} rounds")
+        return True
+        
+    except Exception as e:
+        logging.error(f"Error converting JSON to Excel: {e}")
+        return False
+
+if __name__ == "__main__":
+    json_matches_to_excel_schedule(r"C:\Users\qiaominye\Downloads\badminton_backup\database_export-elo-system-8g6jq2r4a931945e-Match.json", '20250702.xlsx', 'game1751426113668', "17:00")

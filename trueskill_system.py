@@ -351,7 +351,7 @@ def calculate_trueskill_ratings(excel_path, sheet_name="Schedule", data_dir=None
     
     # Process matches and update TrueSkill ratings and statistics
     match_history = []
-    for court, match, score in matches:
+    for court, match, score, _ in matches:
         match_record = process_match(
             court, match, score,
             player_ratings, player_stats, session_stats

@@ -41,7 +41,7 @@ def generate_schedule(players, court_count, start_hour, elo_threshold, game_per_
     print(f"Average ELO difference between teams: {avg_elo_diff:.2f}")
     
     # Update output file name to include average ELO difference
-    output_file = f"badminton_schedule_{court_count}_{elo_threshold}_{team_elo_diff}_{max_opponent_frequency}_{avg_elo_diff:.0f}.xlsx"
+    output_file = f"badminton_schedule_{game_per_player}_{elo_threshold}_{team_elo_diff}_{max_opponent_frequency}_{avg_elo_diff:.0f}.xlsx"
     
     # Save the schedule to Excel
     save_schedule_to_excel(rest_schedule, rounds_lineups, output_file, start_hour=start_hour)
@@ -86,14 +86,14 @@ def calculate_average_elo_difference(rounds_lineups, player_elos):
 
 
 if __name__ == "__main__":
-    players = [ "敏敏子(F)", 'liyu', "米兰的小铁匠", "simonBW", "熊猫",  "安元植", "颜若儒(F)", "毛艺钧",
-               "李娜(F)", "destiny(F)", "伟帆", "浩南", "王威", "Chao", "一顿饭", "风", 
-               "吳祎麟", "方便面下半包(F)", "Guorong Ma", "Jasper", "杜亚朔", "黄腾", "蒋未雨", 'wk', "蜻蜓三点水", "星际宇航员"]
+    players = [
+
+    ]
     for i in range(50):
         try:
-            import random 
+            import random
             random.shuffle(players)
-            rounds = generate_schedule(players, court_count=5, start_hour=17, elo_threshold=50, game_per_player=4, team_elo_diff=200, max_opponent_frequency=2, min_expected_wins=1)
+            rounds = generate_schedule(players, court_count=5, start_hour=17, elo_threshold=60, game_per_player=4, team_elo_diff=350, max_opponent_frequency=2, min_expected_wins=1)
         except ValueError as e:
             print(f"Error generating schedule: {e}")
 
@@ -102,6 +102,7 @@ if __name__ == "__main__":
     #     "dianhsu", "Max", "gdc", "MFive(F)", "🐟🍃", "卷卷(F)", "yy(F)", "乌拉乌拉", 
     #     "米兰的小铁匠", "敏敏子(F)", "尼古丁", "一顿饭", "疏朗(F)", "z", "杨昆",
     #  "星际宇航员", "李娜(F)", "颜若儒(F)", "simonBW", "安元植", "熊猫",  "liyu", "Chao",
-    #  "destiny(F)", "李东勇",  'JianjunLv', "Yummy(F)", "王威", "Louis", "毛艺钧", 
-    # "方文", "shuya(F)", "Acaprice", "廖俊杰", "ian", "大米",  "Jensen", "OwenWei", "随便起个名(F)", "郑旭明", "墨欸莓(F)", "四石"
+    #  "destiny(F)", "李东勇",  'JianjunLv', "Yummy(F)", "我不叫喂", "Louis", "毛艺钧", 
+    # "方文", "shuya(F)", "aki", "廖俊杰", "ian", "大米",  "Jensen", "OwenWei", "随便起个名(F)", "郑旭明", "墨欸莓(F)", "四石"
+    # "伟帆", "浩南", "风", "吳祎麟", "方便面(F)", "Guorong Ma", "Jasper", "duyashuo", "黄腾", "蒋未雨", 'kai', "蜻蜓三点水", "zsr(F)"
     # ]

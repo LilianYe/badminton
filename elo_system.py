@@ -104,7 +104,7 @@ def load_existing_player_data():
 
 
 def extract_matches_from_excel(excel_path, sheet_name="Schedule"):
-    """Extract match data from Excel file."""
+    """Extract match data and timing information from Excel file."""
     # Read the Excel file
     df = pd.read_excel(excel_path, sheet_name=sheet_name, header=None)
     
@@ -124,16 +124,55 @@ def extract_matches_from_excel(excel_path, sheet_name="Schedule"):
             cols.append(col)
     print(f"Auto-detected columns with match data: {cols}")
     
+    # Get court names from the first row of the Excel file
+    court_names = {}
+    for col in cols:
+        if 0 < df.shape[0] and col < df.shape[1]:
+            header_value = str(df.iat[0, col]) if not pd.isna(df.iat[0, col]) else f"Court {col}"
+            court_names[col] = header_value
+    print(f"Court names from Excel: {court_names}")
+    
+    # Extract round information and timing from the first column
+    rounds_info = {}
+    for row in range(df.shape[0]):
+        if row < df.shape[0] and 0 < df.shape[1]:
+            cell_value = str(df.iat[row, 0]) if not pd.isna(df.iat[row, 0]) else ""
+            if "Round" in cell_value and "(" in cell_value and ")" in cell_value:
+                try:
+                    # Extract round number
+                    round_num = float(cell_value.split("Round")[1].split("(")[0].strip())
+                    
+                    # Extract timing information
+                    time_info = cell_value.split("(")[1].split(")")[0].strip()
+                    start_time, end_time = [t.strip() for t in time_info.split("-")]
+                    
+                    # Store round information
+                    rounds_info[row] = {
+                        "round_num": round_num,
+                        "start_time": start_time,
+                        "end_time": end_time
+                    }
+                except Exception as e:
+                    print(f"Error parsing round information from '{cell_value}': {e}")
+    
     matches = []
+    current_round_info = None
+    
     # Extract match details from the identified columns
     for row in range(1, df.shape[0] - 1, 3):
+        # Check if this row starts a new round
+        if row in rounds_info:
+            current_round_info = rounds_info[row]
+            
         for col in cols:
             if row < df.shape[0] and col < df.shape[1]:
                 match_text = df.iat[row, col] if not pd.isna(df.iat[row, col]) else None
                 score_text = df.iat[row + 2, col] if row + 2 < df.shape[0] and not pd.isna(df.iat[row + 2, col]) else None
                 if match_text and score_text:
-                    # Store as (court, match, score)
-                    matches.append((f"Court {col}", str(match_text), str(score_text)))
+                    # Use court name from the first row, or fall back to "Court {col}" if not available
+                    court_name = court_names.get(col, f"Court {col}")
+                    # Store as (court, match, score, round_info)
+                    matches.append((court_name, str(match_text), str(score_text), current_round_info))
     
     print(f"Extracted {len(matches)} matches from {len(cols)} columns")
     return matches
@@ -321,7 +360,7 @@ def calculate_elo_ratings(excel_path, sheet_name="Schedule"):
     
     # Process matches and update ELO ratings and statistics
     match_history = []
-    for court, match, score in matches:
+    for court, match, score, _ in matches:
         match_record = process_match(
             court, match, score,
             player_elos, player_stats, session_stats
@@ -370,4 +409,5 @@ if __name__ == "__main__":
     # Example usage:
     # Specify the path to your Excel file containing match results
     # You can change this path to your actual file location
-    elo_df, history_df, stats_df, session_df = calculate_elo_ratings('./results/20250604.xlsx')
+    elo_df, history_df, stats_df, session_df = calculate_elo_ratings('./results/20250702.xlsx')
+
