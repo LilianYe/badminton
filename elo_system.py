@@ -217,7 +217,15 @@ def process_match(court, match, score, player_elos, player_stats, session_stats)
         # Determine winner
         winner = 'A' if score_left > score_right else 'B'
         
-        # Calculate pre-match ELO for tracking
+        # Store pre-match individual ELO ratings
+        pre_elos = {
+            left_team[0]: player_elos[left_team[0]],
+            left_team[1]: player_elos[left_team[1]],
+            right_team[0]: player_elos[right_team[0]],
+            right_team[1]: player_elos[right_team[1]]
+        }
+        
+        # Calculate pre-match team ELO for display
         team_a_pre_elo = compute_team_elo(player_elos[left_team[0]], player_elos[left_team[1]])
         team_b_pre_elo = compute_team_elo(player_elos[right_team[0]], player_elos[right_team[1]])
         
@@ -229,23 +237,36 @@ def process_match(court, match, score, player_elos, player_stats, session_stats)
             winner=winner
         )
         
-        # Calculate ELO changes for history
+        # Store post-match individual ELO ratings
+        post_elos = {
+            left_team[0]: player_elos[left_team[0]],
+            left_team[1]: player_elos[left_team[1]],
+            right_team[0]: player_elos[right_team[0]],
+            right_team[1]: player_elos[right_team[1]]
+        }
+        
+        # Calculate post-match team ELO for display
         team_a_post_elo = compute_team_elo(player_elos[left_team[0]], player_elos[left_team[1]])
         team_b_post_elo = compute_team_elo(player_elos[right_team[0]], player_elos[right_team[1]])
         
-        # Record match details and ELO changes
+        # Record match details with individual player ELO scores
         match_record = {
             'Court': court,
             'Team A': f"{left_team[0]}/{left_team[1]}",
             'Team B': f"{right_team[0]}/{right_team[1]}",
             'Score': f"{score_left}:{score_right}",
             'Winner': 'Team A' if winner == 'A' else 'Team B',
-            'Team A Pre-ELO': round(team_a_pre_elo, 1),
-            'Team B Pre-ELO': round(team_b_pre_elo, 1),
-            'Team A Post-ELO': round(team_a_post_elo, 1),
-            'Team B Post-ELO': round(team_b_post_elo, 1),
-            'ELO Change A': round(team_a_post_elo - team_a_pre_elo, 1),
-            'ELO Change B': round(team_b_post_elo - team_b_pre_elo, 1)
+            'ELO Change A': team_a_post_elo - team_a_pre_elo,
+            'ELO Change B': team_b_post_elo - team_b_pre_elo,
+            # Individual player ELO scores
+            'PlayerA1 Pre-ELO': pre_elos[left_team[0]],
+            'PlayerA1 Post-ELO': post_elos[left_team[0]],
+            'PlayerA2 Pre-ELO': pre_elos[left_team[1]],
+            'PlayerA2 Post-ELO': post_elos[left_team[1]],
+            'PlayerB1 Pre-ELO': pre_elos[right_team[0]],
+            'PlayerB1 Post-ELO': post_elos[right_team[0]],
+            'PlayerB2 Pre-ELO': pre_elos[right_team[1]],
+            'PlayerB2 Post-ELO': post_elos[right_team[1]]
         }
         
         # Update individual player statistics by game type
@@ -386,11 +407,7 @@ def calculate_elo_ratings(excel_path, sheet_name="Schedule"):
     
     # Add ELO change column to session_df
     session_df['elo_change'] = session_df['Player'].map(elo_changes)
-    
-    # Print final ELO ratings
-    print("\n=== FINAL ELO RATINGS ===")
-    print(elo_df.to_string(float_format='%.1f'))
-    
+        
     combined_df = pd.merge(elo_df, stats_df, on="Player")
     save_player_data(combined_df)
     save_match_history(history_df)
@@ -409,5 +426,4 @@ if __name__ == "__main__":
     # Example usage:
     # Specify the path to your Excel file containing match results
     # You can change this path to your actual file location
-    elo_df, history_df, stats_df, session_df = calculate_elo_ratings('./results/20250702.xlsx')
-
+    elo_df, history_df, stats_df, session_df = calculate_elo_ratings('./results/20250712.xlsx', "Sheet1")

@@ -534,16 +534,6 @@ def json_matches_to_excel_schedule(input_json_path, output_excel_path, session_i
         # Sort matches by CompleteTime
         matches.sort(key=lambda x: x.get('CompleteTime_dt', datetime.min))
         
-        # Group matches by Round
-        round_groups = {}
-        for match in matches:
-            round_num = match.get('Round', 0)
-            if round_num not in round_groups:
-                round_groups[round_num] = []
-            round_groups[round_num].append(match)
-        
-        # Sort rounds
-        sorted_rounds = sorted(round_groups.keys())
         
         # Fixed layout with 4 columns for courts
         num_court_columns = 4
@@ -551,20 +541,15 @@ def json_matches_to_excel_schedule(input_json_path, output_excel_path, session_i
         # Create a matrix to hold our data
         # First column is for round info, then 4 court columns
         total_cols = num_court_columns + 1
-        
-        # Calculate number of rows needed
-        max_matches_per_round = max([len(matches) for matches in round_groups.values()])
-        rows_per_round = max(((max_matches_per_round + num_court_columns - 1) // num_court_columns) * 3, 3)
-        total_rows = len(sorted_rounds) * rows_per_round
+        total_rounds = len(matches) // num_court_columns if len(matches) % num_court_columns == 0 else len(matches) // num_court_columns + 1
+        total_rows = total_rounds * 3 + 1 # Each round takes 3 rows (match, empty, score)
         
         # Create empty DataFrame
         data = np.empty((total_rows, total_cols), dtype=object)
         
         # Fill the matrix with match data
         current_row = 0
-        for round_num in sorted_rounds:
-            round_matches = round_groups[round_num]
-            
+        for round_num in range(1, total_rounds+1):
             # Calculate timing for this round
             round_start = start_time + timedelta(minutes=(round_num-1)*12)
             round_end = round_start + timedelta(minutes=12)
@@ -576,7 +561,7 @@ def json_matches_to_excel_schedule(input_json_path, output_excel_path, session_i
             data[current_row, 0] = round_time_str
             
             # Add matches for this round
-            for i, match in enumerate(round_matches):
+            for i, match in enumerate(matches[(round_num-1)*num_court_columns:round_num*num_court_columns]):
                 col = (i % num_court_columns) + 1  # +1 because col 0 is for round info
                 
                 # Calculate row offset within this round block
@@ -614,7 +599,7 @@ def json_matches_to_excel_schedule(input_json_path, output_excel_path, session_i
                 # Row offset + 1 is left empty for spacing
             
             # Move to next round (leave appropriate spacing)
-            current_row += rows_per_round
+            current_row += 3
         
         # Convert to DataFrame
         df = pd.DataFrame(data)
@@ -630,7 +615,6 @@ def json_matches_to_excel_schedule(input_json_path, output_excel_path, session_i
         final_df.to_excel(output_excel_path, index=False, header=False)
         
         print(f"Excel file created successfully at {output_excel_path}")
-        print(f"Included {len(matches)} matches{' for SessionId ' + session_id if session_id else ''} across {len(sorted_rounds)} rounds")
         return True
         
     except Exception as e:
@@ -638,4 +622,4 @@ def json_matches_to_excel_schedule(input_json_path, output_excel_path, session_i
         return False
 
 if __name__ == "__main__":
-    json_matches_to_excel_schedule(r"C:\Users\qiaominye\Downloads\badminton_backup\database_export-elo-system-8g6jq2r4a931945e-Match.json", '20250702.xlsx', 'game1751426113668', "17:00")
+    json_matches_to_excel_schedule(r"C:\Users\qiaominye\Downloads\database_export-elo-system-8g6jq2r4a931945e-Match.json", '20250712.xlsx', 'game1752030905605', "17:00")
